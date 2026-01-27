@@ -1,13 +1,20 @@
+/**
+ * @file message-preview-utils.ts
+ * @description 消息预览工具函数，提供消息内容预览和附件摘要生成功能
+ */
+
 import type { ChatResourceRef } from '@/service/chat/types';
 import type { ResourceKind } from '@/core/document/types';
 
 /**
  * Maximum length for message content preview (in characters).
+ * 消息内容预览的最大长度（字符数）
  */
 const CONTENT_PREVIEW_MAX_LENGTH = 500;
 
 /**
  * Generate a preview of message content (first N characters).
+ * 生成消息内容的预览（前 N 个字符）
  * 
  * @param content Full message content
  * @returns Preview string (first N characters, truncated if needed)
@@ -27,6 +34,9 @@ export function generateContentPreview(content: string): string {
 /**
  * Generate a summary of attachments/resources.
  * Format: "X images, Y PDFs, Z documents"
+ * 
+ * 生成附件/资源的摘要信息
+ * 格式："X 张图片，Y 个 PDF，Z 个文档"
  * 
  * @param resources Array of resource references
  * @returns Summary string (e.g., "2 images, 1 PDF") or empty string if no resources

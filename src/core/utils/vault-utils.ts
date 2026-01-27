@@ -1,8 +1,17 @@
+/**
+ * @file vault-utils.ts
+ * @description Vault 工具函数，提供文件和文件夹操作的帮助函数
+ */
+
 import { App, normalizePath, TFile, TFolder } from 'obsidian';
 // todo seperate app parameter from function parameters. in this way we can seperate file open from obsidian to electron.
 /**
  * Ensures that a folder exists at the specified path.
  * If the folder does not exist, it is created recursively.
+ * 
+ * 确保指定路径处存在文件夹
+ * 如果文件夹不存在，则递归创建
+ * 
  * @param app The Obsidian app instance.
  * @param folderPath The path to the folder to ensure.
  * @returns The TFolder object representing the folder.
@@ -19,6 +28,7 @@ export async function ensureFolder(app: App, folderPath: string): Promise<TFolde
 
 /**
  * Recursively create folder and all parent folders
+ * 递归创建文件夹及其所有父文件夹
  */
 export async function ensureFolderRecursive(app: App, folderPath: string): Promise<void> {
 	const parts = folderPath.split('/').filter(p => p.length > 0);
@@ -69,6 +79,7 @@ export async function ensureFolderRecursive(app: App, folderPath: string): Promi
 
 /**
  * Upload a single file to vault
+ * 将单个文件上传到 vault
  */
 export async function uploadFileToVault(
 	app: App,

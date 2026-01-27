@@ -1,3 +1,90 @@
+/**
+ * ============================================================================
+ * 文件说明: PromptService.ts - 提示词服务
+ * ============================================================================
+ * 
+ * 【这个文件是干什么的】
+ * 这个文件是整个插件的"话术管理中心"，负责管理所有发给 AI 的提示词（Prompt）。
+ * 它就像一个"剧本库"，存储了各种场景下与 AI 对话的"台词模板"。
+ * 
+ * 【起了什么作用】
+ * 1. 模板管理：集中管理 30+ 个提示词模板（用 Handlebars 语法）
+ * 2. 变量渲染：将模板中的 {{变量}} 替换为实际数据
+ * 3. AI 调用：渲染完模板后，自动调用 LLM 获取回答
+ * 4. 模型选择：支持为不同提示词配置不同的 AI 模型
+ * 5. 流式输出：支持流式调用，实时返回 AI 生成的内容
+ * 6. 文件覆盖：允许用户自定义提示词文件覆盖默认模板
+ * 
+ * 【举例介绍】
+ * 场景 1：生成对话摘要
+ * ```typescript
+ * // 模板内容（存储在 conversation-summary-short.ts）
+ * template: `请为以下对话生成一个简短摘要（不超过 50 字）：
+ * {{#each messages}}
+ * - {{role}}: {{content}}
+ * {{/each}}`
+ * 
+ * // 使用 PromptService
+ * const summary = await promptService.chatWithPrompt(
+ *   PromptId.ConversationSummaryShort,
+ *   { messages: [...历史消息] }
+ * );
+ * // 返回："讨论了 React Hooks 的使用方法，重点讲解了 useState 和 useEffect"
+ * ```
+ * 
+ * 场景 2：提取 JSON 格式数据
+ * ```typescript
+ * // 模板：从对话中提取用户偏好
+ * template: `分析以下对话，提取用户的偏好信息，返回 JSON 数组：
+ * [{"category": "tool-preference", "text": "...", "confidence": 0.9}]
+ * 对话内容：{{conversation}}`
+ * 
+ * // 调用
+ * const json = await promptService.chatWithPrompt(
+ *   PromptId.MemoryExtractCandidatesJson,
+ *   { conversation: "..." }
+ * );
+ * // 返回：[{"category": "tool-preference", "text": "用户喜欢用 TypeScript"}]
+ * ```
+ * 
+ * 场景 3：流式生成内容
+ * ```typescript
+ * // 实时生成搜索摘要
+ * await promptService.chatWithPromptStream(
+ *   PromptId.SearchAiSummary,
+ *   { query: "React Hooks", sources: [...搜索结果] },
+ *   {
+ *     onStart: () => console.log('开始生成...'),
+ *     onChunk: (text) => console.log('收到片段:', text),
+ *     onComplete: () => console.log('生成完成')
+ *   }
+ * );
+ * ```
+ * 
+ * 场景 4：自定义模型配置
+ * ```typescript
+ * // 为不同任务配置不同模型
+ * settings.promptModelMap = {
+ *   'conversation-summary-short': { provider: 'openai', modelId: 'gpt-3.5-turbo' },  // 快速便宜
+ *   'search-ai-summary': { provider: 'anthropic', modelId: 'claude-3-opus' },       // 高质量
+ * };
+ * ```
+ * 
+ * 【核心概念】
+ * 1. **Prompt ID**：每个提示词都有唯一标识符（如 ConversationSystem、SearchAiSummary）
+ * 2. **Handlebars 模板**：使用 {{variable}} 语法定义变量占位符
+ * 3. **变量类型安全**：TypeScript 类型系统保证变量名正确
+ * 4. **代码优先**：模板定义在代码中（.ts 文件），可选地被用户文件覆盖
+ * 5. **缓存机制**：渲染后的模板会被缓存，提升性能
+ * 
+ * 【技术实现】
+ * - 使用 Handlebars.js 进行模板渲染
+ * - 支持自定义 Helper 函数（如日期格式化、列表处理）
+ * - 与 MultiProviderChatService 集成，支持多 LLM 提供商
+ * - 支持流式和阻塞两种调用模式
+ * ============================================================================
+ */
+
 import { App, normalizePath, TFile } from 'obsidian';
 import { PromptId, type PromptVariables, PROMPT_REGISTRY } from './PromptId';
 import { ensureFolder } from '@/core/utils/vault-utils';
@@ -9,6 +96,7 @@ import { MessagePart } from '@/core/providers/types';
 
 /**
  * Unified prompt service with code-first templates and optional file overrides.
+ * 统一的提示词服务类，支持代码优先的模板和可选的文件覆盖。
  */
 export class PromptService {
 	private promptFolder: string;

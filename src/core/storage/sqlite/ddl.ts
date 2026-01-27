@@ -1,88 +1,127 @@
 /**
- * Database schema definition for type safety.
+ * @file ddl.ts
+ * @description 数据库定义语言 (Data Definition Language)，定义了项目的数据库架构。
+ * 
+ * ## 核心职能
+ * 1. **架构定义**：定义了 `Peak Search` 和 `Peak Meta` 两个数据库的所有表结构，包括文档、向量、图、对话和设置。
+ * 2. **类型安全**：为 Kysely 提供详尽的 TypeScript 接口，确保 SQL 查询在编译期就能捕获错误。
+ * 3. **兼容性抽象**：通过查询构建器确保底层 SQLite 引擎（better-sqlite3 或 sql.js）的一致性。
+ * 
+ * ## 数据库概览
+ * - **文档管理**：`doc_meta`, `doc_stats`, `doc_embedding`
+ * - **知识图谱**：`graph_node`, `graph_edge`
+ * - **对话记录**：`conversation`, `message`
+ * - **插件状态**：`settings`, `activity_log`
+ * 
+ * ## 生活化类比
+ * 就像是一份“楼书”或“建筑蓝图”。它详细规划了这栋大楼里有多少个房间（表），每个房间放什么家具（列），以及房间之间的门（外键关联）在哪里。
  */
 export interface Database {
+	/**
+	 * Stores metadata for documents tracked by the system.
+	 * 存储系统跟踪的文档的元数据。
+	 */
 	doc_meta: {
-		id: string;
-		// path almost is the primary key
-		path: string;
-		type: string | null;
-		title: string | null;
-		size: number | null;
-		mtime: number | null;
-		ctime: number | null;
-		content_hash: string | null;
-		summary: string | null;
-		tags: string | null;
-		last_processed_at: number | null;
-		frontmatter_json?: string | null;
+		id: string; // Unique document ID | 唯一文档 ID
+		path: string; // File path relative to vault root | 相对于库根目录的文件路径
+		type: string | null; // Document type (md, pdf, etc.) | 文档类型
+		title: string | null; // Document title | 文档标题
+		size: number | null; // File size in bytes | 文件大小 (字节)
+		mtime: number | null; // Last modified time | 最后修改时间
+		ctime: number | null; // Creation time | 创建时间
+		content_hash: string | null; // Hash of file content for change detection | 文件内容摘要
+		summary: string | null; // Generated summary text | 生成的摘要文本
+		tags: string | null; // Extracted tags | 提取的标签
+		last_processed_at: number | null; // Timestamp of last indexing | 上次索引的时间戳
+		frontmatter_json?: string | null; // Raw frontmatter stored as JSON | 以 JSON 存储的原始前置元数据
 	};
+	
+	/**
+	 * Tracks the internal state of indexing processes.
+	 * 跟踪索引过程的内部状态。
+	 */
 	index_state: {
 		key: string;
 		value: string | null;
 	};
+
+	/**
+	 * Stores vector embeddings for semantic search.
+	 * 存储用于语义搜索的向量嵌入。
+	 */
 	embedding: {
 		id: string;
-		doc_id: string;
-		chunk_id: string | null;
-		chunk_index: number | null;
+		doc_id: string; // Reference to doc_meta.id | 对应 doc_meta.id
+		chunk_id: string | null; // Reference to doc_chunk.chunk_id | 对应 doc_chunk.chunk_id
+		chunk_index: number | null; // Index of the chunk within the document | 该分块在文档中的索引
 		content_hash: string;
 		ctime: number;
 		mtime: number;
-		embedding: Buffer; // BLOB: binary format for efficient storage
-		embedding_model: string;
-		embedding_len: number;
+		embedding: Buffer; // BLOB: binary vector data | BLOB: 二进制向量数据
+		embedding_model: string; // Model used to generate embedding | 用于生成嵌入的模型
+		embedding_len: number; // Dimension of the vector | 向量维度
 	};
+
+	/**
+	 * Stores quantitative statistics about documents.
+	 * 存储关于文档的数量统计信息。
+	 */
 	doc_statistics: {
 		doc_id: string;
 		word_count: number | null;
 		char_count: number | null;
 		language: string | null;
-		// todo wait for implementation
-		richness_score: number | null;
-		last_open_ts: number | null;
-		open_count: number | null;
+		richness_score: number | null; // Placeholder for content quality metric | 内容质量指标占位符
+		last_open_ts: number | null; // Last time the file was opened in Obsidian | 库中文件上次打开时间
+		open_count: number | null; // Total open count | 总打开次数
 		updated_at: number;
 	};
+
+	/**
+	 * Nodes for the internal knowledge graph.
+	 * 内部知识图谱的节点。
+	 */
 	graph_nodes: {
-		/**
-		 * Node ID - normalized path (for document nodes) or prefixed identifier (for tags, categories, etc.).
-		 * For document nodes, this should be the normalized file path relative to vault root. 
-		 *     Because we can not ensure the document id during indexing as the target node may not be created yet.
-		 */
-		id: string;
-		type: string;
-		label: string;
-		attributes: string;
+		id: string; // Unique node ID | 唯一节点 ID
+		type: string; // Node type (document, tag, etc.) | 节点类型
+		label: string; // Display label | 显示名称
+		attributes: string; // JSON string of specific properties | 特定属性的 JSON 字符串
 		created_at: number;
 		updated_at: number;
 	};
+
+	/**
+	 * Edges (relationships) between knowledge graph nodes.
+	 * 知识图谱节点之间的边（关系）。
+	 */
 	graph_edges: {
 		id: string;
 		from_node_id: string;
 		to_node_id: string;
-		type: string;
-		weight: number;
+		type: string; // Relationship type (link, parent, etc.) | 关系类型
+		weight: number; // Strength of relationship | 关系权重
 		attributes: string;
 		created_at: number;
 		updated_at: number;
 	};
+
+	/**
+	 * Stores individual text chunks from documents for fast retrieval.
+	 * 存储来自文档的各个文本分块，以便快速检索。
+	 */
 	doc_chunk: {
 		chunk_id: string;
 		doc_id: string;
 		chunk_index: number;
 		title: string | null;
 		mtime: number | null;
-		content_raw: string | null;
-		content_fts_norm: string | null;
+		content_raw: string | null; // Original extracted text | 原始提取的文本
+		content_fts_norm: string | null; // Normalized text for Full-Text Search | 用于全文搜索的归一化文本
 	};
+
 	/**
-	 * FTS5 virtual table.
-	 *
-	 * Notes:
-	 * - This is a virtual table; schema here is used for typing only.
-	 * - Some operations (MATCH/bm25) still require raw SQL.
-	 * - doc_id is stored for association, path is kept for display purposes only.
+	 * FTS5 Virtual Table for Full-Text Search.
+	 * 全文搜索的 FTS5 虚拟表。
 	 */
 	doc_fts: {
 		chunk_id: string;
@@ -91,62 +130,84 @@ export interface Database {
 		title: string | null;
 		content: string | null;
 	};
+
+	/**
+	 * Represents an AI chat project (collection of conversations).
+	 * 代表一个 AI 聊天项目（对话集合）。
+	 */
 	chat_project: {
 		project_id: string;
 		name: string;
-		folder_rel_path: string;
+		folder_rel_path: string; // Location of project files in vault | 项目文件在库中的位置
 		created_at_ts: number;
 		updated_at_ts: number;
 		archived_rel_path: string | null;
 		meta_json: string | null;
 	};
+
+	/**
+	 * Represents an individual chat conversation.
+	 * 代表一次独立的聊天对话。
+	 */
 	chat_conversation: {
 		conversation_id: string;
 		project_id: string | null;
 		title: string;
-		file_rel_path: string;
+		file_rel_path: string; // Link to the actual .md chat file | 链接到实际的 .md 聊天文件
 		created_at_ts: number;
 		updated_at_ts: number;
 		active_model: string | null;
 		active_provider: string | null;
 		token_usage_total: number | null;
-		title_manually_edited: number;
-		title_auto_updated: number;
+		title_manually_edited: number; // Boolean flag | 布尔标记
+		title_auto_updated: number; // Boolean flag | 布尔标记
 		context_last_updated_ts: number | null;
 		context_last_message_index: number | null;
 		archived_rel_path: string | null;
 		meta_json: string | null;
 	};
+
+	/**
+	 * Stores individual messages within a conversation.
+	 * 存储对话中的单条消息。
+	 */
 	chat_message: {
 		message_id: string;
 		conversation_id: string;
-		role: string;
+		role: string; // system, user, assistant | 角色：系统、用户、助手
 		content_hash: string | null;
 		created_at_ts: number;
 		created_at_zone: string | null;
 		model: string | null;
 		provider: string | null;
-		starred: number;
-		is_error: number;
-		is_visible: number;
-		gen_time_ms: number | null;
-		token_usage_json: string | null;
-		thinking: string | null;
-		content_preview: string | null;
-		attachment_summary: string | null;
+		starred: number; // Boolean flag | 收藏标记
+		is_error: number; // Boolean flag | 错误标记
+		is_visible: number; // Boolean flag | 是否在 UI 可见
+		gen_time_ms: number | null; // Time taken to generate response | 生成响应耗时
+		token_usage_json: string | null; // detailed token breakdown | 详细的 Token 消耗
+		thinking: string | null; // Chain-of-thought content | 思维链内容
+		content_preview: string | null; // Short version for display | 用于显示的预览
+		attachment_summary: string | null; // Summary of attached resources | 附件资源的摘要
 	};
+
+	/**
+	 * Tracks resources (files, tags, URLs) attached to a chat message.
+	 * 跟踪附加到聊天消息的资源（文件、标签、URL）。
+	 */
 	chat_message_resource: {
 		id: string;
 		message_id: string;
-		source: string;
-		kind: string | null;
-		summary_note_rel_path: string | null;
+		source: string; // identifier of the resource | 资源标识符
+		kind: string | null; // pdf, tag, url, etc. | 资源种类
+		summary_note_rel_path: string | null; // Link to extracted summary note | 链接到提取的摘要笔记
 		meta_json: string | null;
 	};
+
+	/**
+	 * Stores 'starred' or favorite messages globally.
+	 * 全局存储“已收藏”或收藏的消息。
+	 */
 	chat_star: {
-		/**
-		 * The source message id (stable key).
-		 */
 		source_message_id: string;
 		/**
 		 * Separate id for UI/reference needs.

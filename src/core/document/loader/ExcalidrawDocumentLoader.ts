@@ -11,9 +11,18 @@ import type { AIServiceManager } from '@/service/chat/service-manager';
 import { getDefaultDocumentSummary } from './helper/DocumentLoaderHelpers';
 
 /**
- * Excalidraw document loader.
- * For .excalidraw.md files: checks frontmatter for excalidraw-plugin, removes comment sections.
- * For .excalidraw files: reads as plain text.
+ * Excalidraw Document Loader
+ * 
+ * Specifically designed to handle Excalidraw files within Obsidian. 
+ * Supports both legacy .excalidraw files and the newer .excalidraw.md format.
+ * For markdown-based Excalidraw files, it filters out the embedded JSON diagram data 
+ * to extract only the human-readable text labels and notes.
+ * 
+ * Excalidraw 文档加载器
+ * 
+ * 专门设计用于处理 Obsidian 中的 Excalidraw 文件。
+ * 支持旧版的 .excalidraw 文件和较新的 .excalidraw.md 格式。
+ * 对于基于 Markdown 的 Excalidraw 文件，它会过滤掉嵌入的 JSON 图表数据，仅提取可读的文本标签和笔记。
  */
 export class ExcalidrawDocumentLoader implements DocumentLoader {
 	constructor(
@@ -21,10 +30,18 @@ export class ExcalidrawDocumentLoader implements DocumentLoader {
 		private readonly aiServiceManager?: AIServiceManager
 	) {}
 
+	/**
+	 * Returns the type of document handled by this loader.
+	 * 返回此加载器处理的文档类型：'excalidraw'。
+	 */
 	getDocumentType(): DocumentType {
 		return 'excalidraw';
 	}
 
+	/**
+	 * Returns the list of supported file extensions.
+	 * 返回支持的文件扩展名列表。
+	 */
 	getSupportedExtensions(): string[] {
 		return ['excalidraw', 'excalidraw.md'];
 	}
@@ -32,12 +49,18 @@ export class ExcalidrawDocumentLoader implements DocumentLoader {
 	/**
 	 * Check if a file path matches any of the supported extensions.
 	 * For excalidraw, we check the full path suffix since extensions can be compound.
+	 * 
+	 * 检查路径是否匹配支持的扩展名。由于存在复合扩展名（如 .excalidraw.md），使用 endsWith 进行检查。
 	 */
 	private isSupportedPath(path: string): boolean {
 		const supportedExts = this.getSupportedExtensions();
 		return supportedExts.some(ext => path.endsWith('.' + ext));
 	}
 
+	/**
+	 * Determines if a markdown file is an Excalidraw plugin file by checking its frontmatter.
+	 * 通过检查 Frontmatter，判断一个 Markdown 文件是否为 Excalidraw 插件文件。
+	 */
 	private isExcalidrawMarkdown(content: string): boolean {
 		const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
 		if (frontmatterMatch) {
@@ -47,6 +70,10 @@ export class ExcalidrawDocumentLoader implements DocumentLoader {
 		return false;
 	}
 
+	/**
+	 * Reads an Excalidraw file and returns a Document object.
+	 * 读取 Excalidraw 文件并返回 Document 对象。
+	 */
 	async readByPath(filePath: string): Promise<Document | null> {
 		const file = this.app.vault.getAbstractFileByPath(filePath);
 		if (!file || !(file instanceof TFile)) return null;
@@ -54,6 +81,10 @@ export class ExcalidrawDocumentLoader implements DocumentLoader {
 		return await this.readExcalidrawFile(file);
 	}
 
+	/**
+	 * Splits the Excalidraw text content into smaller chunks.
+	 * 将 Excalidraw 文本内容拆分为较小的分块。
+	 */
 	async chunkContent(
 		doc: Document,
 		settings: ChunkingSettings,
@@ -88,6 +119,10 @@ export class ExcalidrawDocumentLoader implements DocumentLoader {
 		return chunks;
 	}
 
+	/**
+	 * Scans the vault for Excalidraw files.
+	 * 扫描库中的 Excalidraw 文件。
+	 */
 	async *scanDocuments(params?: { limit?: number; batchSize?: number }): AsyncGenerator<Array<{ path: string; mtime: number; type: DocumentType }>> {
 		const limit = params?.limit ?? Infinity;
 		const batchSize = params?.batchSize ?? 100;
@@ -112,7 +147,8 @@ export class ExcalidrawDocumentLoader implements DocumentLoader {
 	}
 
 	/**
-	 * Get summary for an Excalidraw document
+	 * Get summary for an Excalidraw document.
+	 * 获取 Excalidraw 文档的摘要。
 	 */
 	async getSummary(
 		source: Document | string,
@@ -128,6 +164,10 @@ export class ExcalidrawDocumentLoader implements DocumentLoader {
 		return getDefaultDocumentSummary(source, this.aiServiceManager, provider, modelId);
 	}
 
+	/**
+	 * Internal method to read and sanitize Excalidraw content.
+	 * 内部方法：读取并清理 Excalidraw 内容以供索引。
+	 */
 	private async readExcalidrawFile(file: TFile): Promise<Document | null> {
 		try {
 			let content = await this.app.vault.cachedRead(file);

@@ -11,8 +11,18 @@ import type { AIServiceManager } from '@/service/chat/service-manager';
 import { PromptId } from '@/service/prompt/PromptId';
 
 /**
- * Image document loader.
- * Uses OCR and AI model to generate text description.
+ * Image Document Loader
+ * 
+ * Extracts information from images using AI Vision capabilities. 
+ * Instead of just indexing the file name, this loader uses an AI service to "read" the image, 
+ * generating a semantic text description of its contents. This description is stored in 
+ * cacheFileInfo.content and used for search and retrieval.
+ * 
+ * 图像文档加载器
+ * 
+ * 使用 AI 视觉能力从图像中提取信息。
+ * 该加载器不仅仅索引文件名，还使用 AI 服务来“阅读”图像，生成其内容的语义文本描述。
+ * 该描述存储在 cacheFileInfo.content 中，用于搜索和检索。
  */
 export class ImageDocumentLoader implements DocumentLoader {
 	constructor(
@@ -21,14 +31,30 @@ export class ImageDocumentLoader implements DocumentLoader {
 		private readonly aiServiceManager?: AIServiceManager
 	) { }
 
+	/**
+	 * Returns the type of document handled by this loader.
+	 * 返回此加载器处理的文档类型：'image'。
+	 */
 	getDocumentType(): DocumentType {
 		return 'image';
 	}
 
+	/**
+	 * Returns the list of supported image file extensions.
+	 * 返回支持的图像文件扩展名列表。
+	 */
 	getSupportedExtensions(): string[] {
 		return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
 	}
 
+	/**
+	 * Reads an image file and converts it into a Document object.
+	 * Initially, it doesn't contain text unless genCacheContent is true, 
+	 * which triggers AI analysis.
+	 * 
+	 * 读取图像文件并将其转换为 Document 对象。
+	 * 最初不包含文本，除非 genCacheContent 为 true（这会触发 AI 分析）。
+	 */
 	async readByPath(filePath: string, genCacheContent?: boolean): Promise<Document | null> {
 		const file = this.app.vault.getAbstractFileByPath(filePath);
 		if (!file || !(file instanceof TFile)) return null;
@@ -37,6 +63,10 @@ export class ImageDocumentLoader implements DocumentLoader {
 		return await this.readImageFile(file, genCacheContent);
 	}
 
+	/**
+	 * Splits the AI-generated image description into smaller chunks.
+	 * 将 AI 生成的图像描述拆分为较小的分块。
+	 */
 	async chunkContent(
 		doc: Document,
 		settings: ChunkingSettings,
@@ -71,6 +101,10 @@ export class ImageDocumentLoader implements DocumentLoader {
 		return chunks;
 	}
 
+	/**
+	 * Scans the vault for supported image files.
+	 * 扫描库中支持的图像文件。
+	 */
 	async *scanDocuments(params?: { limit?: number; batchSize?: number }): AsyncGenerator<Array<{ path: string; mtime: number; type: DocumentType }>> {
 		const limit = params?.limit ?? Infinity;
 		const batchSize = params?.batchSize ?? 100;
@@ -96,7 +130,8 @@ export class ImageDocumentLoader implements DocumentLoader {
 	}
 
 	/**
-	 * Get summary for an image document
+	 * Generates a summary for the image based on its AI-generated description.
+	 * 根据 AI 生成的描述为图像生成摘要。
 	 */
 	async getSummary(
 		source: Document | string,
@@ -124,6 +159,10 @@ export class ImageDocumentLoader implements DocumentLoader {
 		return { shortSummary, fullSummary: shortSummary };
 	}
 
+	/**
+	 * Internal method to read the binary image and optionally trigger AI analysis.
+	 * 内部方法：读取二进制图像，并（可选）触发 AI 分析。
+	 */
 	private async readImageFile(file: TFile, genCacheContent?: boolean): Promise<Document | null> {
 		try {
 			if (genCacheContent) {
@@ -133,7 +172,6 @@ export class ImageDocumentLoader implements DocumentLoader {
 			const realContentHash = binaryContentHash(realContent);
 
 			const cacheContent = genCacheContent ? await this.generateImageDescription(file) : '';
-			// const cacheContentHash = generateContentHash(cacheContent);
 
 			return {
 				id: generateStableUuid(file.path),
@@ -154,7 +192,7 @@ export class ImageDocumentLoader implements DocumentLoader {
 					size: file.stat.size,
 					mtime: file.stat.mtime,
 					ctime: file.stat.ctime,
-					content: cacheContent, // OCR and AI description
+					content: cacheContent, // AI generated description of the image
 				},
 				metadata: {
 					title: file.basename,
@@ -173,7 +211,8 @@ export class ImageDocumentLoader implements DocumentLoader {
 	}
 
 	/**
-	 * Generate image description using AI service or return placeholder.
+	 * Generate image description using AI vision service or return a placeholder if unavailable.
+	 * 使用 AI 视觉服务生成图像描述，如果不可用则返回占位符。
 	 */
 	private async generateImageDescription(file: TFile): Promise<string> {
 		if (!this.aiServiceManager) {
@@ -182,16 +221,13 @@ export class ImageDocumentLoader implements DocumentLoader {
 		}
 
 		try {
-			// Read image as base64
+			// Read image as binary to be passed to the AI service
 			const arrayBuffer = await this.app.vault.readBinary(file);
-			// const base64 = Buffer.from(arrayBuffer).toString('base64');
 			const mimeType = this.getMimeType(file.extension);
-			// const dataUrl = `data:${mimeType};base64,${base64}`;
-			// console.debug('[ImageDocumentLoader] dataUrl:', dataUrl);
 
 			const response = await this.aiServiceManager.chatWithPrompt(
 				PromptId.ImageDescription,
-				null, // No variables needed for image description
+				null, // No template variables needed for this prompt
 				undefined,
 				undefined,
 				[
@@ -202,17 +238,18 @@ export class ImageDocumentLoader implements DocumentLoader {
 					},
 				]
 			);
-			console.debug('[ImageDocumentLoader] response:', response);
+			console.debug('[ImageDocumentLoader] AI response for image description:', response);
 			return response || `[Image: ${file.basename}]`;
 		} catch (error) {
 			console.error('Error generating image description with AI:', error);
-			// Fallback to placeholder
+			// Fallback to filename placeholder on failure
 			return `[Image: ${file.basename}]`;
 		}
 	}
 
 	/**
-	 * Get MIME type for image extension.
+	 * Maps file extensions to standard MIME types.
+	 * 将文件扩展名映射为标准的 MIME 类型。
 	 */
 	private getMimeType(extension: string): string {
 		const ext = extension.toLowerCase();

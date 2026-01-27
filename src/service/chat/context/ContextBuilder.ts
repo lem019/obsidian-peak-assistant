@@ -1,3 +1,103 @@
+/**
+ * ============================================================================
+ * 文件说明: ContextBuilder.ts - 对话上下文构建器
+ * ============================================================================
+ * 
+ * 【这个文件是干什么的】
+ * 这个文件负责在用户发送消息前，为 AI 准备完整的"上下文信息"。
+ * 它就像一个聪明的秘书，在你和 AI 对话前，会把相关的背景资料、历史对话、
+ * 用户画像、项目信息等所有 AI 需要知道的内容打包好，一起发给 AI。
+ * 
+ * 【起了什么作用】
+ * 1. 上下文组装：将分散的信息（系统提示词、用户画像、项目摘要、对话历史等）组装成完整的请求
+ * 2. 智能裁剪：根据 Token 预算智能选择包含哪些信息（优先级：最新消息 > 摘要 > 旧消息）
+ * 3. 附件处理：处理用户上传的图片、文件等附件，转换为 AI 可理解的格式
+ * 4. 资源引用：整合对话中引用的笔记、网页、文件的摘要信息
+ * 5. 流式反馈：在构建过程中实时反馈进度（加载提示词、收集消息、处理附件等）
+ * 
+ * 【举例介绍】
+ * 场景：你在一个叫"React 学习项目"的聊天项目中问："useState 怎么用？"
+ * 
+ * ContextBuilder 的工作流程：
+ * 
+ * 第 1 步：加载系统提示词
+ * ```
+ * role: system
+ * content: "你是一个专业的 AI 助手，擅长回答编程问题..."
+ * ```
+ * 
+ * 第 2 步：加载用户画像（如果有）
+ * ```
+ * role: system
+ * content: "用户信息：
+ * - 职业：前端开发者
+ * - 擅长：TypeScript, React
+ * - 偏好：简洁的代码风格"
+ * ```
+ * 
+ * 第 3 步：加载上下文记忆
+ * ```
+ * role: system
+ * content: "项目摘要：这是一个 React 学习项目，主要学习 Hooks 的使用...
+ * 对话摘要：之前讨论了 useEffect 和 useContext 的用法..."
+ * ```
+ * 
+ * 第 4 步：加载最近的消息历史（默认最近 10 条）
+ * ```
+ * [
+ *   { role: 'user', content: '什么是 React Hooks?' },
+ *   { role: 'assistant', content: 'Hooks 是 React 16.8 引入的特性...' },
+ *   { role: 'user', content: 'useEffect 怎么用？' },
+ *   { role: 'assistant', content: 'useEffect 用于处理副作用...' },
+ *   ...
+ * ]
+ * ```
+ * 
+ * 第 5 步：处理当前消息中的附件和引用
+ * - 如果你上传了图片：转为 Base64 编码
+ * - 如果你引用了笔记：加载笔记的摘要
+ * - 如果你提到了网页：包含网页内容的摘要
+ * 
+ * 第 6 步：组装最终请求
+ * ```
+ * [
+ *   系统提示词,
+ *   用户画像,
+ *   上下文记忆,
+ *   历史消息 1,
+ *   历史消息 2,
+ *   ...
+ *   当前消息（包含附件和引用）
+ * ]
+ * ```
+ * 
+ * 【智能裁剪策略】
+ * 问题：如果历史对话太长，超过了 AI 的 Token 限制怎么办？
+ * 
+ * 解决方案（分级裁剪）：
+ * 1. 第一优先级：系统提示词（必须保留）
+ * 2. 第二优先级：用户画像（如果启用了记忆功能）
+ * 3. 第三优先级：上下文记忆（项目摘要、对话摘要）
+ * 4. 第四优先级：最近的 N 条消息（默认 10 条）
+ * 5. 第五优先级：更旧的消息会被自动裁剪掉
+ * 
+ * 【附件处理模式】
+ * 1. direct 模式（直接模式）：
+ *    - 如果模型支持多模态（如 GPT-4V），直接发送图片的 Base64 编码
+ *    - 适合：OpenAI GPT-4V、Claude 3、Gemini Pro Vision
+ * 
+ * 2. degrade_to_text 模式（降级为文本）：
+ *    - 如果模型不支持图片，先用视觉模型生成图片描述，再发送文字
+ *    - 适合：纯文本模型（如 GPT-3.5）
+ * 
+ * 【技术实现】
+ * - 使用 AsyncGenerator 实现流式进度反馈
+ * - Handlebars 模板渲染上下文信息
+ * - 支持多模态消息（文本、图片、文件）
+ * - 自动管理 Token 预算
+ * ============================================================================
+ */
+
 import { ToolEvent, type LLMRequestMessage, type LLMStreamEvent, type MessagePart } from '@/core/providers/types';
 import type { ChatConversation, ChatProject, ChatMessage, ChatResourceRef } from '../types';
 import type { ResourceSummaryService } from './ResourceSummaryService';
@@ -15,18 +115,22 @@ import * as messageResourcesTemplate from '@/service/prompt/templates/message-re
 
 /**
  * Context building options
+ * 上下文构建选项
  */
 export interface ContextBuilderOptions {
 	/**
 	 * Maximum number of recent messages to include
+	 * 最多包含多少条最近的消息（默认 10 条）
 	 */
 	maxRecentMessages?: number;
 	/**
 	 * Whether to include user profile prompt
+	 * 是否包含用户画像提示词
 	 */
 	includeUserProfile?: boolean;
 	/**
 	 * Token budget for context (approximate, used for summary selection)
+	 * Token 预算（用于决定裁剪策略，默认 16000）
 	 */
 	tokenBudget?: number;
 }
@@ -37,6 +141,10 @@ const DEFAULT_TOKEN_BUDGET = 16000;
 /**
  * Builds the final messages array to send to LLM, including context memory.
  * Combines system prompts, project/conv summaries, recent messages, and resource summaries.
+ * 
+ * 上下文构建器类
+ * 负责构建发送给 AI 的完整消息数组，包括上下文记忆。
+ * 整合系统提示词、项目/对话摘要、最近消息和资源摘要。
  */
 export class ContextBuilder {
 	private readonly contextMemoryTemplate: HandlebarsTemplateDelegate;

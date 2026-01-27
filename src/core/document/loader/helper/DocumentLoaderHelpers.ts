@@ -1,3 +1,9 @@
+/**
+ * @file DocumentLoaderHelpers.ts
+ * @description 文档加载器辅助函数。
+ * 提供通用的文档摘要生成逻辑，供所有 DocumentLoader 实现类共享使用。
+ */
+
 import { AppContext } from '@/app/context/AppContext';
 import type { Document, ResourceSummary } from '@/core/document/types';
 import { AIServiceManager } from '@/service/chat/service-manager';
@@ -6,6 +12,9 @@ import { PromptId } from '@/service/prompt/PromptId';
 /**
  * Default implementation of getSummary for document loaders.
  * Uses DocSummary prompt to generate summaries from document content.
+ * 
+ * 文档加载器的默认摘要生成实现。
+ * 使用 DocSummary 提示词模板从文档内容生成摘要。
  * 
  * @param doc - Document to summarize
  * @param aiServiceManager - AI service manager for generating summaries

@@ -1,3 +1,42 @@
+/**
+ * ============================================================================
+ * 文件说明: ResourceSummaryService.ts - 资源摘要服务
+ * ============================================================================
+ * 
+ * 【这个文件是干什么的】
+ * 这个文件负责管理"资源摘要笔记"。当你在 AI 对话中引用了某个文件、网页或其他资源时，
+ * 这个服务会自动创建一个独立的笔记来记录这个资源的摘要信息，并建立双向链接。
+ * 
+ * 【起了什么作用】
+ * 1. 资源索引：为每个引用的资源（文件/URL/附件）创建唯一的摘要笔记
+ * 2. 双向链接：记录"哪些对话/项目引用了这个资源"以及"这个资源被引用在哪里"
+ * 3. 内容摘要：存储 AI 生成的资源摘要（短摘要和完整摘要）
+ * 4. 统一管理：所有资源摘要都存放在一个专门的文件夹中，便于管理和检索
+ * 
+ * 【举例介绍】
+ * 场景 1：你在对话中上传了一张图片 `diagram.png`
+ * - 服务会创建一个笔记：`Resources/Resource-abc123.md`
+ * - 笔记内容包含：图片的摘要、分类（image）、引用它的对话列表
+ * - 你可以在资源笔记中看到"这张图片在哪些对话中被讨论过"
+ * 
+ * 场景 2：你在项目中引用了一个网页 URL
+ * - 服务会为这个 URL 创建资源笔记
+ * - AI 会生成网页内容的摘要存入笔记
+ * - 你可以通过资源笔记快速了解这个网页讲了什么，以及哪些项目使用了它
+ * 
+ * 场景 3：资源被多个对话引用
+ * - 同一个文件可能在多个对话中被讨论
+ * - 资源笔记会自动维护一个"提及列表"，记录所有引用位置
+ * - 这样你就能看到这个资源的"使用历史"
+ * 
+ * 【技术实现】
+ * - 使用 Frontmatter（YAML）存储结构化元数据
+ * - 资源 ID 基于 source（文件路径/URL）的哈希值生成，保证唯一性
+ * - 支持多种资源类型：note（笔记）、image（图片）、attachment（附件）、url（网页）等
+ * - 自动维护双向链接关系（资源 ↔ 对话/项目）
+ * ============================================================================
+ */
+
 import { App, normalizePath, TFile, TFolder } from 'obsidian';
 import { buildFrontmatter, codeBlock } from '@/core/utils/markdown-utils';
 import { stringifyYaml } from 'obsidian';
@@ -12,6 +51,9 @@ import { hashString } from '@/core/utils/hash-utils';
  * Service for managing resource summary notes.
  * Creates and updates markdown files that summarize resources (files, URLs, etc.)
  * and maintain bidirectional links between resources and conversations/projects.
+ * 
+ * 资源摘要服务类
+ * 负责为对话中引用的所有资源创建和管理专门的摘要笔记。
  */
 export class ResourceSummaryService {
 	private readonly resourcesFolder: string;

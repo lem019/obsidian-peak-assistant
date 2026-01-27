@@ -11,9 +11,18 @@ import type { AIServiceManager } from '@/service/chat/service-manager';
 import { getDefaultDocumentSummary } from './helper/DocumentLoaderHelpers';
 
 /**
- * JSON document loader.
- * If JSON is an array, each item becomes a chunk.
- * Otherwise, the entire structure is one chunk, then split by size/overlap.
+ * JSON Document Loader
+ * 
+ * Handles reading and chunking of JSON files. 
+ * If the JSON file contains an array, the loader treats each element as an individual chunk. 
+ * Otherwise, it treat the entire structure as a single piece of content and applies standard 
+ * size-based splitting.
+ * 
+ * JSON 文档加载器
+ * 
+ * 处理 JSON 文件的读取和分块。
+ * 如果 JSON 文件包含一个数组，加载器会将每个元素视为独立的分块。
+ * 否则，它会将整个结构视为一段内容，并应用标准的大小拆分策略。
  */
 export class JsonDocumentLoader implements DocumentLoader {
 	constructor(
@@ -21,14 +30,26 @@ export class JsonDocumentLoader implements DocumentLoader {
 		private readonly aiServiceManager?: AIServiceManager
 	) {}
 
+	/**
+	 * Returns the type of document handled by this loader.
+	 * 返回此加载器处理的文档类型：'json'。
+	 */
 	getDocumentType(): DocumentType {
 		return 'json';
 	}
 
+	/**
+	 * Returns the list of supported file extensions.
+	 * 返回支持的文件扩展名列表。
+	 */
 	getSupportedExtensions(): string[] {
 		return ['json'];
 	}
 
+	/**
+	 * Reads a JSON file by its path and converts it into a Document object.
+	 * 根据路径读取 JSON 文件并将其转换为 Document 对象。
+	 */
 	async readByPath(path: string): Promise<Document | null> {
 		const file = this.app.vault.getAbstractFileByPath(path);
 		if (!file || !(file instanceof TFile)) return null;
@@ -36,6 +57,13 @@ export class JsonDocumentLoader implements DocumentLoader {
 		return await this.readJsonFile(file);
 	}
 
+	/**
+	 * Splits the JSON content into smaller chunks.
+	 * Logical splitting: if root is an array, split by items.
+	 * 
+	 * 将 JSON 内容拆分为较小的分块。
+	 * 逻辑拆分：如果根元素是数组，则按条目拆分。
+	 */
 	async chunkContent(
 		doc: Document,
 		settings: ChunkingSettings,
@@ -46,7 +74,7 @@ export class JsonDocumentLoader implements DocumentLoader {
 		try {
 			const parsed = JSON.parse(content);
 			
-			// If it's an array, each item becomes a chunk
+			// If it's an array, each item becomes a chunk (Logical splitting)
 			if (Array.isArray(parsed)) {
 				const chunks: Chunk[] = [];
 				for (let i = 0; i < parsed.length; i++) {
@@ -61,7 +89,7 @@ export class JsonDocumentLoader implements DocumentLoader {
 				return chunks;
 			}
 
-			// Otherwise, treat as single structure and split by size/overlap
+			// Otherwise, treat as a single structure and split based on string length constraints
 			if (content.length <= minSize) {
 				return [{
 					docId: doc.id,
@@ -88,7 +116,7 @@ export class JsonDocumentLoader implements DocumentLoader {
 
 			return chunks;
 		} catch {
-			// If JSON parsing fails, treat as plain text
+			// Fallback: If JSON parsing fails (invalid JSON), treat as plain text for splitting
 			if (content.length <= minSize) {
 				return [{
 					docId: doc.id,
@@ -117,6 +145,10 @@ export class JsonDocumentLoader implements DocumentLoader {
 		}
 	}
 
+	/**
+	 * Scans the vault for JSON files.
+	 * 扫描库中的 JSON 文件。
+	 */
 	async *scanDocuments(params?: { limit?: number; batchSize?: number }): AsyncGenerator<Array<{ path: string; mtime: number; type: DocumentType }>> {
 		const limit = params?.limit ?? Infinity;
 		const batchSize = params?.batchSize ?? 100;
@@ -142,7 +174,8 @@ export class JsonDocumentLoader implements DocumentLoader {
 	}
 
 	/**
-	 * Get summary for a JSON document
+	 * Get summary for a JSON document.
+	 * 获取 JSON 文档的摘要。
 	 */
 	async getSummary(
 		source: Document | string,
@@ -158,6 +191,10 @@ export class JsonDocumentLoader implements DocumentLoader {
 		return getDefaultDocumentSummary(source, this.aiServiceManager, provider, modelId);
 	}
 
+	/**
+	 * Internal method to read file content via Obsidian's cachedRead.
+	 * 内部方法：通过 Obsidian 的 cachedRead 读取文件内容。
+	 */
 	private async readJsonFile(file: TFile): Promise<Document | null> {
 		try {
 			const content = await this.app.vault.cachedRead(file);

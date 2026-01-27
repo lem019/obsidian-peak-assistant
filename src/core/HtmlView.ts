@@ -1,3 +1,10 @@
+/**
+ * @file HtmlView.ts
+ * @description 动态 HTML 视图注册器。
+ * 允许用户通过配置文件在 Obsidian 中注册自定义的 HTML 视图，并可以将这些视图添加到侧边栏或通过命令打开。
+ * 常用于在不开发完整 React 插件的情况下集成现有的 Web 工具或静态页面。
+ */
+
 import { PaneType, Plugin } from 'obsidian';
 import { ItemView, WorkspaceLeaf } from 'obsidian';
 import * as fs from 'fs';
@@ -5,20 +12,36 @@ import * as path from 'path';
 
 const VIEW_TYPE_HTML = "html-view";
 
+/**
+ * Configuration for a custom HTML view
+ * 
+ * 自定义 HTML 视图配置接口。
+ */
 export interface HTMLViewConfig {
+    /** 视图的内部索引名称 */
     viewName: string;
+    /** HTML 文件在库中的相对路径 */
     filePath: string;
+    /** 使用的 Lucide 图标名称 */
     iconName: string;
+    /** 悬停显示的标题 */
     iconTitle: string;
-    // Whether to add entry in left sidebar
+    /** 是否在左侧侧边栏添加入口按钮 */
     sideBar: boolean;
-    // Trigger command name
+    /** 可选：关联的触发命令名称 */
     command?: string;
+    /** 可选：打开时的叶子节点类型（如 'tab', 'split' 等） */
     leafType?: string | boolean;
 }
 
 type LeafType = PaneType | boolean;
 
+/**
+ * Generic view for rendering local HTML files
+ * 
+ * 通用 HTML 视图类。
+ * 继承自 Obsidian 的 ItemView，负责读取文件并注入到容器容器中。
+ */
 class HtmlView extends ItemView {
     constructor(leaf: WorkspaceLeaf, private viewConfig: HTMLViewConfig) {
         super(leaf);
@@ -32,6 +55,11 @@ class HtmlView extends ItemView {
         return "HTML View";
     }
 
+    /**
+     * Initial view rendering logic
+     * 
+     * 视图打开时的生命周期钩子。读取本地 HTML 文件内容并渲染。
+     */
     async onOpen() {
         const container = this.containerEl.children[1];
         container.empty();
@@ -51,6 +79,14 @@ class HtmlView extends ItemView {
     }
 }
 
+/**
+ * Main registration entry point
+ * @param congfigFilePath Path to the JSON config file
+ * @param plugin Plugin instance
+ * 
+ * 批量注册 HTML 视图的入口函数。
+ * 读取 JSON 配置文件并为每一个配置项调用 registerHTMLView。
+ */
 export function registerHTMLViews(congfigFilePath: string, plugin: Plugin) {
     // Read content
     const basePath = (plugin.app.vault.adapter as any).basePath
@@ -99,15 +135,12 @@ export function registerHTMLViews(congfigFilePath: string, plugin: Plugin) {
 }
 
 /**
+ * Register a single HTML view
+ * @param viewConfig View configuration data
+ * @param plugin Plugin instance
  * 
- * @param viewConfig eg:{
-                viewName: 'Home',
-                filePath: '/tmp.html',
-                iconName: 'dice',
-                iconTitle: 'Open Home Page.',
-                sideBar: true,
-            }
- * @param plugin 
+ * 注册单个 HTML 视图。
+ * 根据配置决定是添加侧边栏图标（Ribbon Icon）还是注册全局命令。
  */
 export function registerHTMLView(viewConfig: HTMLViewConfig, plugin: Plugin) {
     // Register home view
@@ -133,6 +166,12 @@ export function registerHTMLView(viewConfig: HTMLViewConfig, plugin: Plugin) {
     }
 }
 
+/**
+ * Activate and show the HTML view
+ * 
+ * 激活视图。
+ * 如果视图已存在则先卸载旧叶子节点，然后创建新叶子节点并显示。
+ */
 async function activateView(plugin: Plugin, newLeaf?: LeafType) {
     plugin.app.workspace.detachLeavesOfType(VIEW_TYPE_HTML);
     await plugin.app.workspace.getLeaf(newLeaf).setViewState({

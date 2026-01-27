@@ -10,8 +10,16 @@ import type { AIServiceManager } from '@/service/chat/service-manager';
 import { getDefaultDocumentSummary } from './helper/DocumentLoaderHelpers';
 
 /**
- * Table document loader for CSV and XLSX files.
- * Each row becomes a chunk. If a row is too long, it's truncated with overlap.
+ * Table Document Loader
+ * 
+ * Specifically designed to handle tabular data like CSV and potentially XLSX files. 
+ * The chunking strategy for tables is row-based: it attempts to keep each row as a single unit 
+ * of information, splitting it further only if it exceeds the maximum chunk size.
+ * 
+ * 表格文档加载器
+ * 
+ * 专门设计用于处理类似的 CSV（以及潜在的 XLSX）表格数据。
+ * 表格的分块策略是基于行的：它尝试将每一行保持为一个独立的信息单元，只有在超过最大分块大小时才会进一步拆分。
  */
 export class TableDocumentLoader implements DocumentLoader {
 	constructor(
@@ -19,14 +27,26 @@ export class TableDocumentLoader implements DocumentLoader {
 		private readonly aiServiceManager?: AIServiceManager
 	) {}
 
+	/**
+	 * Returns the type of document handled by this loader.
+	 * 返回此加载器处理的文档类型：'csv'。
+	 */
 	getDocumentType(): DocumentType {
 		return 'csv';
 	}
 
+	/**
+	 * Returns the list of supported file extensions.
+	 * 返回支持的文件扩展名列表：['csv', 'xlsx']。
+	 */
 	getSupportedExtensions(): string[] {
 		return ['csv', 'xlsx'];
 	}
 
+	/**
+	 * Reads a table file by its path and converts it into a Document object.
+	 * 根据路径读取表格文件并将其转换为 Document 对象。
+	 */
 	async readByPath(path: string): Promise<Document | null> {
 		const file = this.app.vault.getAbstractFileByPath(path);
 		if (!file || !(file instanceof TFile)) return null;
@@ -34,11 +54,19 @@ export class TableDocumentLoader implements DocumentLoader {
 		return await this.readTableFile(file);
 	}
 
+	/**
+	 * Splits the table content into chunks, where each row is ideally one chunk.
+	 * Rows exceeding maxChunkSize are split with overlap.
+	 * 
+	 * 将表格内容拆分为分块，理想情况下每一行就是一个分块。
+	 * 超过 maxChunkSize 的行将带重叠地拆分。
+	 */
 	async chunkContent(
 		doc: Document,
 		settings: ChunkingSettings,
 	): Promise<Chunk[]> {
 		const content = doc.sourceFileInfo.content;
+		// Split by newline to get individual rows
 		const rows = content.split('\n').filter(row => row.trim().length > 0);
 		const maxChunkSize = settings.maxChunkSize;
 		const overlap = settings.chunkOverlap;
@@ -48,6 +76,7 @@ export class TableDocumentLoader implements DocumentLoader {
 
 		for (const row of rows) {
 			if (row.length <= maxChunkSize) {
+				// Row fits into a single chunk
 				chunks.push({
 					docId: doc.id,
 					content: row,
@@ -55,7 +84,7 @@ export class TableDocumentLoader implements DocumentLoader {
 					chunkIndex: chunkIndex++,
 				});
 			} else {
-				// Split long row with overlap
+				// Split long row into multiple chunks with overlap to preserve context
 				let start = 0;
 				while (start < row.length) {
 					const end = Math.min(start + maxChunkSize, row.length);
@@ -75,6 +104,10 @@ export class TableDocumentLoader implements DocumentLoader {
 		return chunks;
 	}
 
+	/**
+	 * Scans the vault for supported table files.
+	 * 扫描库中支持的表格文件。
+	 */
 	async *scanDocuments(params?: { limit?: number; batchSize?: number }): AsyncGenerator<Array<{ path: string; mtime: number; type: DocumentType }>> {
 		const limit = params?.limit ?? Infinity;
 		const batchSize = params?.batchSize ?? 100;
@@ -100,7 +133,8 @@ export class TableDocumentLoader implements DocumentLoader {
 	}
 
 	/**
-	 * Get summary for a table document (CSV/XLSX)
+	 * Get summary for a table document.
+	 * 获取表格文档的摘要。
 	 */
 	async getSummary(
 		source: Document | string,
@@ -116,6 +150,12 @@ export class TableDocumentLoader implements DocumentLoader {
 		return getDefaultDocumentSummary(source, this.aiServiceManager, provider, modelId);
 	}
 
+	/**
+	 * Internal method to read file content. CSV is read as text. 
+	 * XLSX parsing is a placeholder for future implementation.
+	 * 
+	 * 内部方法：读取文件内容。CSV 按文本读取。XLSX 解析是未来实现的占位符。
+	 */
 	private async readTableFile(file: TFile): Promise<Document | null> {
 		try {
 			let content = '';
@@ -129,13 +169,6 @@ export class TableDocumentLoader implements DocumentLoader {
 				// TODO: Parse XLSX using a library like xlsx or exceljs
 				// Each row should become a chunk, with truncation and overlap for long rows
 				// For now, return null to indicate we can't handle it yet
-				// Example implementation would be:
-				// const XLSX = require('xlsx');
-				// const arrayBuffer = await this.app.vault.readBinary(file);
-				// const workbook = XLSX.read(arrayBuffer, { type: 'buffer' });
-				// const sheet = workbook.Sheets[workbook.SheetNames[0]];
-				// const rows = XLSX.utils.sheet_to_csv(sheet).split('\n');
-				// content = rows.join('\n');
 				return null;
 			}
 

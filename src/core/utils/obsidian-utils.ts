@@ -1,3 +1,8 @@
+/**
+ * @file obsidian-utils.ts
+ * @description Obsidian 工具函数，提供与 Obsidian API 交互的帮助函数
+ */
+
 import { AppContext } from '@/app/context/AppContext';
 import type { App } from 'obsidian';
 import { normalizePath, TFile } from 'obsidian';
@@ -6,6 +11,7 @@ const DEFAULT_PLUGIN_ID = 'obsidian-peak-assistant';
 
 /**
  * Resolve plugin directory path relative to vault root.
+ * 解析插件目录相对于 vault 根目录的路径
  */
 export function getPluginDir(app: App, pluginId: string = DEFAULT_PLUGIN_ID): string {
 	const plugin = (app as any)?.plugins?.getPlugin?.(pluginId);
@@ -19,6 +25,9 @@ export function getPluginDir(app: App, pluginId: string = DEFAULT_PLUGIN_ID): st
 /**
  * Get file size in bytes from vault.
  * Returns 0 if file doesn't exist or cannot be read.
+ * 
+ * 从 vault 中获取文件大小（字节）
+ * 如果文件不存在或无法读取，返回 0
  * 
  * @param app - Obsidian app instance
  * @param filePath - Path to the file relative to vault root
@@ -54,6 +63,9 @@ export async function getFileSize(app: App, filePath: string): Promise<number> {
 /**
  * Open a file in Obsidian workspace.
  * Creates a new leaf if needed.
+ * 
+ * 在 Obsidian 工作区中打开文件
+ * 如需要会创建新的 leaf
  *
  * @param app - Obsidian app instance
  * @param filePath - Path to the file relative to vault root
@@ -70,6 +82,9 @@ export async function openFile(app: App, filePath: string): Promise<void> {
 /**
  * Read a file from vault and convert to base64 string.
  * Returns null if file doesn't exist or cannot be read.
+ * 
+ * 从 vault 读取文件并转换为 base64 字符串
+ * 如果文件不存在或无法读取，返回 null
  *
  * @param app - Obsidian app instance
  * @param resourceSource - Resource source path (may start with '/')

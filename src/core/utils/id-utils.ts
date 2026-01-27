@@ -1,9 +1,16 @@
+/**
+ * @file id-utils.ts
+ * @description ID 生成工具函数，提供 UUID 和稳定 ID 的生成功能
+ */
+
 import { createHash } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { hashMD5 } from './hash-utils';
 
 /**
  * Generate a UUID without hyphens.
+ * 生成不带连字符的 UUID
+ * 
  * @returns A UUID string without hyphens (e.g., "5678475e44724cb2a898c6b7046b9e1b")
  */
 export function generateUuidWithoutHyphens(): string {
@@ -14,6 +21,10 @@ export function generateUuidWithoutHyphens(): string {
 /**
  * Generate a stable UUID from a string (deterministic).
  * Same input always produces the same UUID.
+ * 
+ * 从字符串生成稳定的 UUID（确定性的）
+ * 相同的输入总是产生相同的 UUID
+ * 
  * @param input String to generate UUID from
  * @returns A UUID string without hyphens (e.g., "5678475e44724cb2a898c6b7046b9e1b")
  */
@@ -29,13 +40,20 @@ export function generateStableUuid(input: string): string {
  * Generate a stable document ID from file path.
  * Uses SHA-256 hash to ensure same path always generates same ID.
  * 
- * Why SHA-256 instead of MD5?
- * - MD5 is 128-bit (2^128 possibilities), collision risk exists (though very low)
- * - SHA-256 is 256-bit (2^256 possibilities), collision risk is negligible
- * - SHA-256 is cryptographically secure (MD5 is broken for security)
- * - Both are deterministic (same path = same ID)
+ * 从文件路径生成稳定的文档 ID
+ * 使用 SHA-256 哈希确保相同路径总是生成相同的 ID
  * 
- * Collision analysis:
+ * Why SHA-256 instead of MD5? （为什么使用 SHA-256 而不是 MD5？）
+ * - MD5 is 128-bit (2^128 possibilities), collision risk exists (though very low)
+ *   MD5 是 128 位，存在冲突风险（尽管非常低）
+ * - SHA-256 is 256-bit (2^256 possibilities), collision risk is negligible
+ *   SHA-256 是 256 位，冲突风险可以忽略
+ * - SHA-256 is cryptographically secure (MD5 is broken for security)
+ *   SHA-256 具有密码学安全性（MD5 已被破解）
+ * - Both are deterministic (same path = same ID)
+ *   两者都是确定性的（相同路径 = 相同ID）
+ * 
+ * Collision analysis:（冲突分析）
  * - For 1 billion documents, MD5 collision probability: ~0.0000000000000001%
  * - For 1 billion documents, SHA-256 collision probability: Practically zero
  * 

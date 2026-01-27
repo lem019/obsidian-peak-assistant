@@ -5,20 +5,39 @@ import type { SearchScopeMode, SearchScopeValue } from '@/service/search/types';
 import { BusinessError, ErrorCode } from '@/core/errors';
 
 /**
- * CRUD repository for `embedding` table.
+ * Embedding Repository
+ * 
+ * Manages the persistent storage of text embeddings and synchronizes them with 
+ * the `vec_embeddings` virtual table for high-performance vector similarity search.
+ * This class handles the complexity of `sqlite-vec` integration, including:
+ * 1. Storing primary embedding metadata in a standard SQLite table.
+ * 2. Managing the lifecycle of the `vec0` virtual table.
+ * 3. Handling vector dimension mismatches (automatic recreation of indices).
+ * 4. Fallback mechanisms and state caching for database initialization.
+ * 
+ * 嵌入 (Embedding) 存储库
+ * 
+ * 管理文本嵌入的持久化存储，并将其同步到 `vec_embeddings` 虚拟表中，以实现高性能的向量相似性搜索。
+ * 此类处理 `sqlite-vec` 集成的复杂性，包括：
+ * 1. 在标准 SQLite 表中存储主要的嵌入元数据。
+ * 2. 管理 `vec0` 虚拟表的生命周期。
+ * 3. 处理向量维度不匹配（自动重建索引）。
+ * 4. 数据库初始化的回退机制和状态缓存。
  */
 export class EmbeddingRepo {
 	// Cache for vec_embeddings table state (checked once on plugin startup)
+	// vec_embeddings 表状态的缓存（在插件启动时检查一次）
 	private vecEmbeddingsTableExists: boolean | null = null;
 	private vecEmbeddingsTableDimension: number | null = null;
 
 	constructor(
 		private readonly db: Kysely<DbSchema>,
-		private readonly rawDb: SqliteDatabase,
+		private readonly rawDb: SqliteDatabase, // Used for specialized vector SQL functions | 用于专门的向量 SQL 函数
 	) { }
 
 	/**
-	 * Convert number[] to Buffer (BLOB format).
+	 * Convert number[] to Buffer (BLOB format) for database storage.
+	 * 将 number[] 转换为 Buffer (BLOB 格式) 以供数据库存储。
 	 */
 	private arrayToBuffer(arr: number[]): Buffer {
 		const buffer = Buffer.allocUnsafe(arr.length * 4); // 4 bytes per float32
@@ -29,7 +48,8 @@ export class EmbeddingRepo {
 	}
 
 	/**
-	 * Convert Buffer (BLOB format) to number[].
+	 * Convert Buffer (BLOB format) from database to number[].
+	 * 将数据库中的 Buffer (BLOB 格式) 转换为 number[]。
 	 */
 	private bufferToArray(buffer: Buffer): number[] {
 		const arr: number[] = [];
@@ -42,6 +62,9 @@ export class EmbeddingRepo {
 	/**
 	 * Initialize vec_embeddings table state cache.
 	 * Should be called once on plugin startup to avoid frequent table checks.
+	 * 
+	 * 初始化 vec_embeddings 表状态缓存。
+	 * 应在插件启动时调用一次，以避免频繁的表检查。
 	 */
 	initializeVecEmbeddingsTableCache(): void {
 		const checkStmt = this.rawDb.prepare(`
@@ -60,6 +83,7 @@ export class EmbeddingRepo {
 
 	/**
 	 * Re-check vec_embeddings table state (fallback when error occurs).
+	 * 重新检查 vec_embeddings 表状态（发生错误时的回退机制）。
 	 */
 	private recheckVecEmbeddingsTableState(): void {
 		const checkStmt = this.rawDb.prepare(`
@@ -75,7 +99,11 @@ export class EmbeddingRepo {
 	 * This will delete all existing vector data in vec_embeddings.
 	 * Note: This does NOT delete embedding records from the embedding table.
 	 * 
-	 * @param dimension - New dimension for the table
+	 * 使用新维度重新创建 vec_embeddings 表。
+	 * 这将删除 vec_embeddings 中所有现有的向量数据。
+	 * 注意：这不会删除 embedding 表中的记录。
+	 * 
+	 * @param dimension - New dimension for the table | 表的新维度
 	 */
 	recreateVecEmbeddingsTable(dimension: number): void {
 		console.warn(
@@ -104,6 +132,10 @@ export class EmbeddingRepo {
 	 * Ensure vec_embeddings table exists with correct dimension.
 	 * Uses cached state to avoid frequent table checks.
 	 * If table doesn't exist, create it with the specified dimension.
+	 * 
+	 * 确保 vec_embeddings 表存在且维度正确。
+	 * 使用缓存状态以避免频繁的表检查。
+	 * 如果表不存在，则使用指定的维度创建它。
 	 */
 	private ensureVecEmbeddingsTable(dimension: number): void {
 		// Use cached state if available
@@ -130,8 +162,8 @@ export class EmbeddingRepo {
 	}
 
 	/**
-	 * Get embedding rowid by id.
-	 * Returns null if not found.
+	 * Get internal SQLite rowid for an embedding record.
+	 * 获取嵌入记录的内部 SQLite rowid。
 	 */
 	private getEmbeddingRowid(id: string): number | null {
 		const stmt = this.rawDb.prepare(`
@@ -145,6 +177,9 @@ export class EmbeddingRepo {
 	/**
 	 * Sync embedding to vec_embeddings virtual table.
 	 * This performs DELETE then INSERT (virtual tables don't support UPDATE).
+	 * 
+	 * 将嵌入同步到 vec_embeddings 虚拟表。
+	 * 此操作执行先删除后插入（虚拟表不支持更新）。
 	 */
 	private syncToVecEmbeddings(embeddingRowid: number, embeddingBuffer: Buffer, logContext?: string): void {
 		// Check if row exists in vec_embeddings
@@ -175,6 +210,10 @@ export class EmbeddingRepo {
 
 	/**
 	 * Handle errors from syncToVecEmbeddings and retry if needed.
+	 * This is critical for recovery when the vector extension is loaded or dimensions change.
+	 * 
+	 * 处理来自 syncToVecEmbeddings 的错误，并在需要时重试。
+	 * 这对于加载向量扩展或维度更改时的恢复至关重要。
 	 */
 	private handleSyncError(
 		error: unknown,
@@ -200,7 +239,8 @@ export class EmbeddingRepo {
 			return;
 		}
 
-		// Handle dimension mismatch error
+		// Handle dimension mismatch error: happens if user switched models
+		// 处理维度不匹配错误：如果用户切换了模型，就会发生这种情况
 		if (errorMsg.includes('Dimension mismatch')) {
 			const dimensionMatch = errorMsg.match(/Expected (\d+) dimensions/);
 			const expectedDimension = dimensionMatch ? dimensionMatch[1] : 'unknown';
@@ -226,7 +266,8 @@ export class EmbeddingRepo {
 	}
 
 	/**
-	 * Check if embedding exists by id.
+	 * Check if embedding exists by custom ID string.
+	 * 检查嵌入是否按自定义 ID 字符串存在。
 	 */
 	async existsById(id: string): Promise<boolean> {
 		const row = await this.db
@@ -238,7 +279,10 @@ export class EmbeddingRepo {
 	}
 
 	/**
-	 * Insert new embedding record.
+	 * Insert new embedding record including its vector payload.
+	 * 插入新的嵌入记录，包括其向量负载。
+	 * 
+	 * @returns The rowid of the newly inserted record. | 新插入记录的 rowid。
 	 */
 	async insert(embedding: {
 		id: string;
@@ -278,6 +322,7 @@ export class EmbeddingRepo {
 
 	/**
 	 * Update existing embedding record by id.
+	 * 通过 ID 更新现有的嵌入记录。
 	 */
 	async updateById(id: string, updates: {
 		doc_id: string;
@@ -297,14 +342,18 @@ export class EmbeddingRepo {
 	}
 
 	/**
-	 * Upsert an embedding record.
+	 * Upsert an embedding record: handles both the primary persistence table and 
+	 * the `vec_embeddings` virtual table for high-performance indexing.
+	 * 
+	 * 更新或插入嵌入记录：处理主持久化表和用于高性能索引的 `vec_embeddings` 虚拟表。
 	 *
 	 * Also syncs the embedding vector to vec_embeddings virtual table for KNN search.
 	 * vec_embeddings.rowid corresponds to embedding table's implicit rowid (integer).
 	 * This allows direct association: we get embedding.rowid after insert, then use it as vec_embeddings.rowid.
-	 *
-	 * Note: embedding table stores vectors as BLOB (binary format), while vec_embeddings virtual table
-	 * uses JSON format (as required by sqlite-vec vec0).
+	 * 
+	 * 还会将嵌入向量同步到 vec_embeddings 虚拟表以进行 KNN 搜索。
+	 * vec_embeddings.rowid 对应于 embedding 表的隐式 rowid（整数）。
+	 * 这允许直接关联：我们在插入后获得 embedding.rowid，然后将其用作 vec_embeddings.rowid。
 	 */
 	async upsert(embedding: {
 		id: string;
@@ -315,7 +364,7 @@ export class EmbeddingRepo {
 		content_hash: string;
 		ctime: number;
 		mtime: number;
-		embedding: number[]; // Accept number[] directly, convert to BLOB for storage
+		embedding: number[]; // Accept number[] directly, convert to BLOB for storage | 直接接受 number[]，转换为 BLOB 进行存储
 		embedding_model: string;
 		embedding_len: number;
 	}): Promise<void> {
@@ -453,25 +502,23 @@ export class EmbeddingRepo {
 
 	/**
 	 * Vector similarity search using sqlite-vec KNN search.
+	 * 使用 sqlite-vec KNN 搜索执行向量相似性搜索。
 	 * 
 	 * This uses the vec0 virtual table with MATCH operator for efficient KNN search
 	 * without loading all embeddings into memory.
 	 * 
-	 * Explanation of rowid:
-	 * - `rowid` is SQLite's implicit integer primary key for each table
-	 * - vec_embeddings.rowid = embedding.rowid (they share the same rowid)
-	 * - This allows direct association: we can use vec_embeddings.rowid to query embedding table
+	 * 此方法使用带有 MATCH 操作符的 vec0 虚拟表进行高效的 KNN 搜索，而无需将所有嵌入加载到内存中。
 	 * 
-	 * Why do we need vec_embeddings virtual table?
-	 * - sqlite-vec requires a vec0 virtual table for KNN search (it provides optimized vector indexing)
-	 * - vec_embeddings stores vectors as native float[] format for efficient KNN search
-	 * - Both embedding table and vec_embeddings use BLOB format (binary float[]) for efficiency
+	 * [Architecture Note]
+	 * We share the `rowid` between the primary table and the vector index table to avoid
+	 * complex string-based joins during the high-performance search phase.
 	 * 
-	 * @param queryEmbedding The query embedding vector (as number[] or Buffer)
-	 * @param limit Maximum number of results to return
-	 * @param scopeMode Optional scope mode for filtering
-	 * @param scopeValue Optional scope value for filtering
-	 * @returns Array of results with embedding_id (from embedding table) and distance
+	 * [架构说明]
+	 * 我们在主表和向量索引表之间共享 `rowid`，以避免在高性能搜索阶段进行复杂的基于字符串的连接。
+	 * 
+	 * @param queryEmbedding The query embedding vector (as number[] or Buffer) | 查询嵌入向量
+	 * @param limit Maximum number of results to return | 最大返回结果数
+	 * @returns Array of results with embedding_id (from embedding table) and distance | 包含嵌入 ID 和距离的数组
 	 */
 	searchSimilar(
 		queryEmbedding: number[] | Buffer,
@@ -574,7 +621,10 @@ export class EmbeddingRepo {
 	}
 
 	/**
-	 * Get embeddings by file IDs (batch).
+	 * Get embeddings for multiple documents in a single query.
+	 * 在单次查询中获取多个文档的嵌入。
+	 * 
+	 * @returns Map where keys are doc IDs and values are arrays of embedding records. | 以文档 ID 为键、嵌入记录数组为值的映射。
 	 */
 	async getByDocIds(docIds: string[]): Promise<Map<string, DbSchema['embedding'][]>> {
 		if (!docIds.length) return new Map();
@@ -589,7 +639,8 @@ export class EmbeddingRepo {
 	}
 
 	/**
-	 * Get embedding by chunk ID.
+	 * Fetches the embedding record for a specific text chunk.
+	 * 获取特定文本分块的嵌入记录。
 	 */
 	async getByChunkId(chunkId: string): Promise<DbSchema['embedding'] | null> {
 		const row = await this.db.selectFrom('embedding').selectAll().where('chunk_id', '=', chunkId).executeTakeFirst();
@@ -597,10 +648,13 @@ export class EmbeddingRepo {
 	}
 
 	/**
-	 * Get embedding by content hash.
+	 * Looks up an embedding by its content hash to optimize indexing.
+	 * 通过其内容哈希查找嵌入，以优化索引过程。
 	 */
 	async getByContentHash(contentHash: string): Promise<DbSchema['embedding'] | null> {
 		const row = await this.db.selectFrom('embedding').selectAll().where('content_hash', '=', contentHash).executeTakeFirst();
+		return row ?? null;
+	}
 		return row ?? null;
 	}
 

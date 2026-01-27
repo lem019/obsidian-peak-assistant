@@ -1,3 +1,63 @@
+/**
+ * ============================================================================
+ * 文件说明: ContextUpdateService.ts - 上下文自动更新服务
+ * ============================================================================
+ * 
+ * 【这个文件是干什么的】
+ * 这个文件负责"智能监控"对话和项目，当消息积累到一定数量时，自动生成或更新摘要。
+ * 就像一个聪明的记录员，会定期整理会议纪要，确保你能快速了解之前讨论了什么。
+ * 
+ * 【起了什么作用】
+ * 1. 自动摘要生成：当对话消息达到阈值（默认 5 条）时，自动生成对话摘要
+ * 2. 项目摘要维护：当项目中的对话有更新时，自动更新项目级别的摘要
+ * 3. 防抖处理：避免频繁更新，等消息停止一段时间（默认 3 秒）后再统一更新
+ * 4. 智能标题生成：当对话超过 3 条消息且没有标题时，自动生成合适的标题
+ * 
+ * 【举例介绍】
+ * 场景 1：自动生成对话摘要
+ * - 你在一个新对话中问："React Hooks 怎么用？"
+ * - AI 回答了
+ * - 你又问了 3 个相关问题
+ * - ✅ 达到阈值（5 条消息）！服务自动触发：
+ *   - 调用 AI 生成对话摘要："讨论了 React Hooks 的基本用法，包括 useState 和 useEffect"
+ *   - 将摘要存入数据库，下次对话时可以加载这个摘要作为上下文
+ * 
+ * 场景 2：防抖处理（避免浪费）
+ * - 你快速连发了 5 条消息（每隔 1 秒发一条）
+ * - 如果没有防抖：服务会触发 5 次更新，浪费计算资源
+ * - ✅ 有了防抖：
+ *   - 第 1 条消息发送后，启动 3 秒计时器
+ *   - 第 2-5 条消息发送时，计时器不断重置
+ *   - 等你停止发送消息 3 秒后，才执行一次更新
+ * 
+ * 场景 3：自动生成标题
+ * - 你创建了一个新对话，系统默认标题是 "New Chat"
+ * - 经过 3 轮问答后，服务触发：
+ *   - 调用 AI 分析对话内容
+ *   - 自动生成标题："React Hooks 学习笔记"
+ *   - 更新对话标题，让你更容易找到这个对话
+ * 
+ * 场景 4：项目摘要更新
+ * - 你在 "学习 React" 项目中有 3 个对话
+ * - 当任意一个对话更新后，服务会：
+ *   - 收集项目下所有对话的摘要
+ *   - 生成项目级别的总摘要
+ *   - 更新项目笔记的 Frontmatter
+ * 
+ * 【更新阈值】
+ * - 对话摘要更新阈值：5 条新消息（CONVERSATION_SUMMARY_UPDATE_THRESHOLD）
+ * - 项目摘要更新阈值：10 条新消息（PROJECT_SUMMARY_UPDATE_THRESHOLD）
+ * - 防抖时间：3 秒（SUMMARY_UPDATE_DEBOUNCE_MS）
+ * - 标题生成最少消息数：3 条（MIN_MESSAGES_FOR_TITLE_GENERATION）
+ * 
+ * 【技术实现】
+ * - 使用事件总线（EventBus）监听 MESSAGE_SENT 事件
+ * - 使用 setTimeout 实现防抖（debounce）
+ * - 维护两个 Timer Map：一个管理对话更新，一个管理项目更新
+ * - 从数据库读取 contextLastMessageIndex 判断是否需要更新
+ * ============================================================================
+ */
+
 import { EventBus, MessageSentEvent, ConversationCreatedEvent, ViewEventType } from '@/core/eventBus';
 import { CONVERSATION_SUMMARY_UPDATE_THRESHOLD, PROJECT_SUMMARY_UPDATE_THRESHOLD, SUMMARY_UPDATE_DEBOUNCE_MS, DEFAULT_SUMMARY, MIN_MESSAGES_FOR_TITLE_GENERATION } from '@/core/constant';
 import type { ConversationService } from '../service-conversation';
@@ -9,6 +69,10 @@ import type { ChatContextWindow, ChatConversation } from '../types';
  * Service to automatically update summaries based on events.
  * Uses debouncing and threshold-based triggering to avoid excessive updates.
  * Both conversation and project summaries are updated based on message count.
+ * 
+ * 上下文自动更新服务类
+ * 根据事件自动更新摘要。使用防抖和基于阈值的触发机制避免过度更新。
+ * 对话摘要和项目摘要都基于消息数量更新。
  */
 export class ContextUpdateService {
 	private conversationTimers = new Map<string, NodeJS.Timeout>();

@@ -12,8 +12,15 @@ import { getDefaultDocumentSummary } from './helper/DocumentLoaderHelpers';
 import officeParser from 'officeparser';
 
 /**
- * PPTX document loader using officeparser.
- * Parses PPTX directly from buffer without temporary files.
+ * PPTX Document Loader
+ * 
+ * Uses the `officeparser` library to extract text content from Microsoft PowerPoint (.pptx) files.
+ * It reads the PPTX as binary data and generates a text-based version for indexing.
+ * 
+ * PPTX 文档加载器
+ * 
+ * 使用 `officeparser` 库从 Microsoft PowerPoint (.pptx) 文件中提取文本内容。
+ * 它将 PPTX 读取为二进制数据，并生成文本版本以供索引使用。
  */
 export class PptxDocumentLoader implements DocumentLoader {
 	constructor(
@@ -21,14 +28,26 @@ export class PptxDocumentLoader implements DocumentLoader {
 		private readonly aiServiceManager?: AIServiceManager
 	) {}
 
+	/**
+	 * Returns the type of document handled by this loader.
+	 * 返回此加载器处理的文档类型：'pptx'。
+	 */
 	getDocumentType(): DocumentType {
 		return 'pptx';
 	}
 
+	/**
+	 * Returns the list of supported file extensions.
+	 * 返回支持的文件扩展名列表。
+	 */
 	getSupportedExtensions(): string[] {
 		return ['pptx'];
 	}
 
+	/**
+	 * Reads a PPTX file by its path and converts it into a Document object.
+	 * 根据路径读取 PPTX 文件并将其转换为 Document 对象。
+	 */
 	async readByPath(filePath: string, genCacheContent?: boolean): Promise<Document | null> {
 		const file = this.app.vault.getAbstractFileByPath(filePath);
 		if (!file || !(file instanceof TFile)) return null;
@@ -36,6 +55,10 @@ export class PptxDocumentLoader implements DocumentLoader {
 		return await this.readPptxFile(file, genCacheContent);
 	}
 
+	/**
+	 * Splits the extracted PPTX text into smaller chunks.
+	 * 将提取出的 PPTX 文本拆分为较小的分块。
+	 */
 	async chunkContent(
 		doc: Document,
 		settings: ChunkingSettings,
@@ -70,6 +93,10 @@ export class PptxDocumentLoader implements DocumentLoader {
 		return chunks;
 	}
 
+	/**
+	 * Scans the vault for PPTX files.
+	 * 扫描库中的 PPTX 文件。
+	 */
 	async *scanDocuments(params?: { limit?: number; batchSize?: number }): AsyncGenerator<Array<{ path: string; mtime: number; type: DocumentType }>> {
 		const limit = params?.limit ?? Infinity;
 		const batchSize = params?.batchSize ?? 100;
@@ -95,7 +122,8 @@ export class PptxDocumentLoader implements DocumentLoader {
 	}
 
 	/**
-	 * Get summary for a PPTX document
+	 * Get summary for a PPTX document.
+	 * 获取 PPTX 文档的摘要。
 	 */
 	async getSummary(
 		source: Document | string,
@@ -111,6 +139,10 @@ export class PptxDocumentLoader implements DocumentLoader {
 		return getDefaultDocumentSummary(source, this.aiServiceManager, provider, modelId);
 	}
 
+	/**
+	 * Internal method to perform binary reading and text extraction via officeparser.
+	 * 内部方法：执行二进制读取并通过 officeparser 提取文本。
+	 */
 	private async readPptxFile(file: TFile, genCacheContent?: boolean): Promise<Document | null> {
 		try {
 			// Read PPTX as binary
@@ -144,7 +176,7 @@ export class PptxDocumentLoader implements DocumentLoader {
 					size: file.stat.size,
 					mtime: file.stat.mtime,
 					ctime: file.stat.ctime,
-					content: cacheContent, // Extracted text content
+					content: cacheContent, // Extracted text content from PPTX slides
 				},
 				metadata: {
 					title: file.basename,

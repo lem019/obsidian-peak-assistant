@@ -1,3 +1,67 @@
+/**
+ * ============================================================================
+ * 文件说明: reranker.ts - 搜索结果重排序器
+ * ============================================================================
+ * 
+ * 【这个文件是干什么的】
+ * 这个文件负责对搜索结果进行"二次排序"（Rerank），通过多种信号和 AI 模型，
+ * 让最相关的结果排在最前面，提升搜索体验。
+ * 
+ * 【起了什么作用】
+ * 1. 信号增强：根据用户行为（打开次数、最近打开时间）给结果加分
+ * 2. 关系增强：如果结果与当前笔记有链接关系，提升排名
+ * 3. LLM 重排：使用专门的 AI 模型（如 Cohere Rerank）进行深度相关性分析
+ * 4. 多阶段融合：先用快速算法排序，再用慢速但精确的 AI 模型优化
+ * 
+ * 【举例介绍】
+ * 场景 1：用户行为信号加分
+ * - 搜索关键词："React 性能优化"
+ * - 初始结果有 3 篇笔记：A（从未打开）、B（上周打开过）、C（今天刚看过）
+ * - Reranker 处理：
+ *   - A 分数：1.0（基础分）
+ *   - B 分数：1.0 × 1.2 = 1.2（打开过，+20% boost）
+ *   - C 分数：1.0 × 1.5 = 1.5（最近打开，+50% boost）
+ * - 最终排序：C > B > A
+ * 
+ * 场景 2：关系图谱加分
+ * - 你正在笔记 "项目 A 技术方案" 中搜索
+ * - 结果中有一篇笔记 "项目 A 架构设计" 与当前笔记有双向链接
+ * - Reranker 处理：
+ *   - 检测到图谱关系（2 跳内）
+ *   - 给这篇笔记额外加分（+30% boost）
+ * - 效果：相关笔记排在更前面
+ * 
+ * 场景 3：LLM 深度重排（可选，慢但精准）
+ * - 用户启用了 LLM Rerank 功能（默认关闭）
+ * - 搜索："如何使用 useState"
+ * - 初始结果：3 篇笔记都提到了 "useState"
+ * - LLM Rerank 处理：
+ *   - 将查询和每篇笔记的内容发送给 AI 模型（如 Cohere Rerank）
+ *   - AI 理解语义，重新打分：
+ *     - 笔记 1："useState 使用指南"（0.95 分 - 最相关）
+ *     - 笔记 2："React Hooks 大全"（0.75 分 - 部分相关）
+ *     - 笔记 3："useState 常见错误"（0.60 分 - 相关度较低）
+ *   - 最终排序完全基于 AI 的语义理解
+ * 
+ * 【两种工作模式】
+ * 1. 快速模式（默认，推荐）：
+ *    - 只使用用户行为信号和图谱关系
+ *    - 速度快（毫秒级）
+ *    - 适合日常搜索
+ * 
+ * 2. 精确模式（可选，enableLLMRerank=true）：
+ *    - 在快速模式基础上，再调用 AI 模型深度排序
+ *    - 速度慢（秒级），需要调用外部 API
+ *    - 适合对精确度要求极高的场景（如 AI 问答）
+ * 
+ * 【技术细节】
+ * - 支持多种 Rerank 模型：Cohere、Jina、Voyage 等
+ * - 使用 Reciprocal Rank Fusion (RRF) 算法融合多个信号
+ * - 考虑图谱拓扑关系（2-hop 邻居）
+ * - 缓存用户行为数据提升性能
+ * ============================================================================
+ */
+
 import type { AIServiceManager } from '@/service/chat/service-manager';
 import type { SearchSettings } from '@/app/settings/types';
 import type { SearchResultItem, SearchScopeValue } from '../types';
@@ -7,11 +71,15 @@ import type { RerankDocument } from '@/core/providers/rerank/types';
 
 /**
  * Ranking signals for boosting search results.
+ * 排序信号：用于根据用户行为增强搜索结果
+ * - lastOpenTs：最后一次打开的时间戳
+ * - openCount：总共打开的次数
  */
 export type RankingSignals = Map<string, { lastOpenTs: number; openCount: number }>;
 
 /**
  * Reranker for merging and reranking hybrid search results.
+ * 重排序器类：负责对混合搜索结果进行二次排序
  */
 export class Reranker {
 	constructor(

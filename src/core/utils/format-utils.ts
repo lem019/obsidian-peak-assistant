@@ -1,8 +1,15 @@
+/**
+ * @file format-utils.ts
+ * @description 格式化工具函数，提供数字、时间、文本等的格式化功能
+ */
+
 import { BooleanExpressionParser } from "@/service/tools/search-graph-inspector/boolean-expression-parser";
 import { parseSemanticDateRange } from "./date-utils";
 
 /**
  * Format a number with K/M suffix for large numbers
+ * 将大数字格式化为带 K/M 后缀的字符串
+ * 
  * @param count - The number to format
  * @returns Formatted string (e.g., "1.5K", "2.3M", "123")
  */

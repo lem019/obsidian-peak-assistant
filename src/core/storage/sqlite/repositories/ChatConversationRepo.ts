@@ -2,13 +2,23 @@ import type { Kysely } from 'kysely';
 import type { Database as DbSchema } from '../ddl';
 
 /**
- * Repository for chat_conversation table.
+ * Chat Conversation Repository
+ * 
+ * Manages the `chat_conversation` table. This tracks the metadata for individual 
+ * chat files (.md files in the vault), including titles, project associations, 
+ * LLM model/provider info, and token usage summaries.
+ * 
+ * 对话存储库
+ * 
+ * 管理 `chat_conversation` 表。这跟踪单个对话文件（库中的 .md 文件）的元数据，
+ * 包括标题、项目关联、LLM 模型/提供者信息以及令牌使用情况摘要。
  */
 export class ChatConversationRepo {
 	constructor(private readonly db: Kysely<DbSchema>) {}
 
 	/**
-	 * Check if conversation exists by conversation_id.
+	 * Checks if a conversation exists by its unique ID.
+	 * 检查对话是否按其唯一 ID 存在。
 	 */
 	async existsByConversationId(conversationId: string): Promise<boolean> {
 		const row = await this.db
@@ -20,7 +30,8 @@ export class ChatConversationRepo {
 	}
 
 	/**
-	 * Insert new chat conversation.
+	 * Inserts a new conversation record.
+	 * 插入新的对话记录。
 	 */
 	async insert(conversation: {
 		conversation_id: string;
@@ -46,7 +57,8 @@ export class ChatConversationRepo {
 	}
 
 	/**
-	 * Update existing chat conversation by conversation_id.
+	 * Updates an existing conversation record.
+	 * 更新现有的对话记录。
 	 */
 	async updateByConversationId(conversationId: string, updates: Partial<Pick<DbSchema['chat_conversation'], 'project_id' | 'title' | 'file_rel_path' | 'updated_at_ts' | 'active_model' | 'active_provider' | 'token_usage_total' | 'title_manually_edited' | 'title_auto_updated' | 'context_last_updated_ts' | 'context_last_message_index' | 'archived_rel_path' | 'meta_json'>>): Promise<void> {
 		await this.db
@@ -57,7 +69,8 @@ export class ChatConversationRepo {
 	}
 
 	/**
-	 * Upsert conversation metadata.
+	 * Upserts conversation metadata.
+	 * 更新或插入对话元数据。
 	 */
 	async upsertConversation(params: {
 		conversationId: string;
@@ -79,7 +92,7 @@ export class ChatConversationRepo {
 		const exists = await this.existsByConversationId(params.conversationId);
 
 		if (exists) {
-			// Update existing conversation
+			// Update existing conversation | 更新现有对话
 			await this.updateByConversationId(params.conversationId, {
 				project_id: params.projectId ?? null,
 				title: params.title,
@@ -96,7 +109,7 @@ export class ChatConversationRepo {
 				meta_json: params.metaJson ?? null,
 			});
 		} else {
-			// Insert new conversation
+			// Insert new conversation | 插入新对话
 			await this.insert({
 				conversation_id: params.conversationId,
 				project_id: params.projectId ?? null,
@@ -118,7 +131,8 @@ export class ChatConversationRepo {
 	}
 
 	/**
-	 * Get conversation by ID.
+	 * Retrieves conversation details by ID.
+	 * 通过 ID 获取对话详情。
 	 */
 	async getById(conversationId: string): Promise<DbSchema['chat_conversation'] | null> {
 		const row = await this.db
@@ -130,7 +144,8 @@ export class ChatConversationRepo {
 	}
 
 	/**
-	 * List conversations by project (null for root conversations).
+	 * Lists conversations belonging to a project, or root-level conversations.
+	 * 列出属于某个项目的对话，或根级别的对话。
 	 */
 	async listByProject(
 		projectId: string | null,
@@ -160,7 +175,8 @@ export class ChatConversationRepo {
 	}
 
 	/**
-	 * Count conversations by project (null for root conversations).
+	 * Counts the number of conversations in a specific project.
+	 * 计算特定项目中的对话数量。
 	 */
 	async countByProject(
 		projectId: string | null,
@@ -180,7 +196,8 @@ export class ChatConversationRepo {
 	}
 
 	/**
-	 * Update file path when conversation is moved/renamed.
+	 * Updates the markdown file path for a conversation.
+	 * 更新对话的 Markdown 文件路径。
 	 */
 	async updateFilePath(conversationId: string, newFileRelPath: string, newArchivedRelPath?: string | null): Promise<void> {
 		await this.db

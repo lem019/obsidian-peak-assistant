@@ -11,18 +11,27 @@ import type { AIServiceManager } from '@/service/chat/service-manager';
 import { getDefaultDocumentSummary } from './helper/DocumentLoaderHelpers';
 
 /**
- * URL document loader using PlaywrightWebBaseLoader.
+ * URL Document Loader
  * 
- * Note: URLs are not files in the vault, so readByPath and scanDocuments
- * may need special handling. This loader is designed for URL indexing.
+ * Specifically designed to fetch and process web content using Playwright via LangChain. 
+ * Unlike other loaders, this doesn't correspond to a file in the vault, but rather an 
+ * external web resource. It's used for web indexing and online search results.
+ * 
+ * URL 文档加载器
+ * 
+ * 专门设计用于通过 LangChain 使用 Playwright 获取和处理网页内容。
+ * 与其他加载器不同，它不对应于库中的文件，而是外部网络资源。
+ * 它用于网络索引和在线搜索结果。
  */
 export class UrlDocumentLoader implements DocumentLoader {
+	// Playwright configuration for browser automation
+	// 用于浏览器自动化的 Playwright 配置
 	private readonly playwrightConfig = {
 		launchOptions: {
-			headless: true,
+			headless: true, // Run in headless mode (no UI)
 		},
 		gotoOptions: {
-			waitUntil: 'domcontentloaded' as const,
+			waitUntil: 'domcontentloaded' as const, // Wait for basic DOM content to load
 		},
 	};
 
@@ -31,20 +40,37 @@ export class UrlDocumentLoader implements DocumentLoader {
 		private readonly aiServiceManager?: AIServiceManager
 	) { }
 
+	/**
+	 * Returns the type of document handled by this loader: 'url'.
+	 * 返回此加载器处理的文档类型：'url'。
+	 */
 	getDocumentType(): DocumentType {
 		return 'url';
 	}
 
+	/**
+	 * Returns the list of supported "extensions" (simulated via .url).
+	 * 返回支持的“扩展名”列表（通过 .url 模拟）。
+	 */
 	getSupportedExtensions(): string[] {
 		return ['url'];
 	}
 
+	/**
+	 * Fetches the URL content. For URLs, the 'path' argument is the URL itself.
+	 * 获取 URL 内容。对于 URL，“path”参数就是 URL 本身。
+	 */
 	async readByPath(path: string, genCacheContent?: boolean): Promise<Document | null> {
-		// For URLs, path is the URL itself
+		// Validate that the path is actually a valid URL
+		// 验证路径是否确实是有效的 URL
 		if (!this.isValidUrl(path)) return null;
 		return await this.readUrl(path, genCacheContent);
 	}
 
+	/**
+	 * Splits the loaded web content into chunks using RecursiveCharacterTextSplitter.
+	 * 使用 RecursiveCharacterTextSplitter 将加载的网页内容拆分为分块。
+	 */
 	async chunkContent(
 		doc: Document,
 		settings: ChunkingSettings,
@@ -52,6 +78,8 @@ export class UrlDocumentLoader implements DocumentLoader {
 		const content = doc.cacheFileInfo.content;
 		const minSize = settings.minDocumentSizeForChunking;
 
+		// Keep small pages as a single chunk
+		// 将较小的页面保留为单个分块
 		if (content.length <= minSize) {
 			return [{
 				docId: doc.id,
@@ -79,14 +107,19 @@ export class UrlDocumentLoader implements DocumentLoader {
 		return chunks;
 	}
 
+	/**
+	 * URLs are not stored as files in the vault, so scanning is skipped.
+	 * URL 不作为文件存储在库中，因此跳过扫描。
+	 */
 	async *scanDocuments(params?: { limit?: number; batchSize?: number }): AsyncGenerator<Array<{ path: string; mtime: number; type: DocumentType }>> {
-		// URLs are not files in the vault, so this may return empty
-		// In practice, URLs might be stored in a special index or metadata
+		// URLs are not files in the vault, so this returns empty
+		// URL 不是库中的文件，因此返回空
 		yield [];
 	}
 
 	/**
-	 * Get summary for a URL document
+	 * Generates an AI summary for the fetched web content.
+	 * 为获取的网页内容生成 AI 摘要。
 	 */
 	async getSummary(
 		source: Document | string,
@@ -102,6 +135,10 @@ export class UrlDocumentLoader implements DocumentLoader {
 		return getDefaultDocumentSummary(source, this.aiServiceManager, provider, modelId);
 	}
 
+	/**
+	 * Validates if a string is a properly formatted URL.
+	 * 验证字符串是否为格式正确的 URL。
+	 */
 	private isValidUrl(url: string): boolean {
 		try {
 			new URL(url);
@@ -111,8 +148,11 @@ export class UrlDocumentLoader implements DocumentLoader {
 		}
 	}
 
+	/**
+	 * Internal method to perform URL loading via Playwright.
+	 * 通过 Playwright 执行 URL 加载的内部方法。
+	 */
 	private async readUrl(url: string, genCacheContent?: boolean): Promise<Document | null> {
-		// Validate URL before creating loader instance
 		if (!this.isValidUrl(url)) {
 			return null;
 		}
@@ -121,17 +161,25 @@ export class UrlDocumentLoader implements DocumentLoader {
 			let content = '';
 			const contentHash = generateContentHash(url);
 			let title = '';
+			
+			// If we need to fetch the actual content (not just a placeholder)
+			// 如果我们需要获取实际内容（而不仅仅是占位符）
 			if (genCacheContent) {
 				const loader = new PlaywrightWebBaseLoader(url, this.playwrightConfig);
 
+				// Perform the browser navigation and content extraction
+				// 执行浏览器导航和内容提取
 				const docs = await loader.load();
 				content = docs.map(doc => doc.pageContent).join('\n\n');
 
-				// Use URL as the document ID
+				// Generate a readable title from the URL
+				// 从 URL 生成可读的标题
 				const urlObj = new URL(url);
 				title = urlObj.hostname + urlObj.pathname;
 			}
 
+			// Construct a Document object representing the external URL
+			// 构造一个代表外部 URL 的 Document 对象
 			return {
 				id: generateDocIdFromPath(url),
 				type: 'url',
@@ -142,7 +190,7 @@ export class UrlDocumentLoader implements DocumentLoader {
 					size: content.length,
 					mtime: Date.now(),
 					ctime: Date.now(),
-					content: '', // URL has no source content
+					content: '', // No local source content for remote URLs
 				},
 				cacheFileInfo: {
 					path: url,
@@ -151,7 +199,7 @@ export class UrlDocumentLoader implements DocumentLoader {
 					size: content.length,
 					mtime: Date.now(),
 					ctime: Date.now(),
-					content, // Extracted web content
+					content, // The extracted web content is stored in cache
 				},
 				metadata: {
 					title: title,

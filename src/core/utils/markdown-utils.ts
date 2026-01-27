@@ -1,3 +1,8 @@
+/**
+ * @file markdown-utils.ts
+ * @description Markdown 工具函数，提供 Markdown 解析、提取和格式化功能
+ */
+
 import matter from 'gray-matter';
 import { marked, Tokens } from 'marked';
 import type { DocumentReferences, DocumentReference } from '../document/types';
@@ -6,10 +11,14 @@ import type { DocumentReferences, DocumentReference } from '../document/types';
  * Best-effort markdown extractors and utilities for search signals.
  *
  * These are intentionally simple for MVP and should remain pure functions.
+ * 
+ * 为搜索信号提供的 Markdown 提取器和工具
+ * 为 MVP 有意保持简单，应保持为纯函数
  */
 
 /**
  * Parsed frontmatter result
+ * 解析后的 frontmatter 结果
  */
 export interface ParsedFrontmatter<T> {
 	data: T;

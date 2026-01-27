@@ -1,11 +1,20 @@
+/**
+ * @file source-mixer.ts
+ * @description 搜索结果混合器，用于混合来自不同源的搜索结果
+ */
+
 import type { SearchResultItem, SearchResultSource } from '@/service/search/types';
 
 /**
  * Mix search results from different sources, ensuring minimum items per source.
  * 
- * Strategy:
+ * 混合来自不同源的搜索结果，确保每个源至少有最小数量的项目
+ * 
+ * Strategy: （策略）
  * 1. Ensure each source has at least `minPerSource` items
+ *    确保每个源至少有 `minPerSource` 个项目
  * 2. Interleave remaining items by score (round-robin by source)
+ *    按分数交错排列剩余项目（按源轮询）
  * 
  * @deprecated we shouldn't use this during ui logic
  * 

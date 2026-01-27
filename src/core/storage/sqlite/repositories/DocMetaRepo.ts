@@ -3,13 +3,26 @@ import type { Database as DbSchema } from '../ddl';
 import { sql } from 'kysely';
 
 /**
- * CRUD repository for `doc_meta` table.
+ * Document Metadata Repository
+ * 
+ * Responsible for managing the `doc_meta` table, which stores high-level 
+ * information about every document indexed in the vault (e.g., path, title, 
+ * size, modification time, and generated summaries). 
+ * This metadata is used to track indexing status and provide quick context 
+ * without re-reading the entire file content.
+ * 
+ * 文档元数据存储库
+ * 
+ * 负责管理 `doc_meta` 表，该表存储库中每个已索引文档的高层信息
+ * （例如：路径、标题、大小、修改时间以及生成的摘要）。
+ * 这些元数据用于跟踪索引状态，并在不重新读取整个文件内容的情况下提供快速上下文。
  */
 export class DocMetaRepo {
 	constructor(private readonly db: Kysely<DbSchema>) {}
 
 	/**
-	 * Check if document metadata exists by path.
+	 * Checks if document metadata exists for a given file path.
+	 * 检查给定文件路径是否存在文档元数据。
 	 */
 	async existsByPath(path: string): Promise<boolean> {
 		const row = await this.db
@@ -21,7 +34,8 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Insert new document metadata.
+	 * Inserts a new document metadata record.
+	 * 插入新的文档元数据记录。
 	 */
 	async insert(doc: DbSchema['doc_meta']): Promise<void> {
 		await this.db
@@ -31,7 +45,8 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Update existing document metadata by id.
+	 * Updates specific fields of a document record identified by its ID.
+	 * 通过 ID 更新文档记录的特定字段。
 	 */
 	async updateById(id: string, updates: Partial<Omit<DbSchema['doc_meta'], 'id' | 'path' | 'created_at'>>): Promise<void> {
 		await this.db
@@ -42,7 +57,8 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Update existing document metadata by path.
+	 * Updates specific fields of a document record identified by its path.
+	 * 通过路径更新文档记录的特定字段。
 	 */
 	async updateByPath(path: string, updates: Partial<Omit<DbSchema['doc_meta'], 'id' | 'path' | 'created_at'>>): Promise<void> {
 		await this.db
@@ -53,11 +69,15 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Upsert document metadata.
-	 * Supports both full Document metadata and minimal fields for backward compatibility.
+	 * Upserts document metadata.
+	 * Performs an update if the path exists, otherwise inserts a new record.
+	 * 
+	 * 更新或插入文档元数据。
+	 * 如果路径存在则执行更新，否则插入新记录。
+	 * 
+	 * @param doc - Partial metadata including the required path.
 	 */
 	async upsert(doc: Partial<DbSchema['doc_meta']> & { path: string }): Promise<void> {
-		// Ensure id is provided (should be generated from path if not provided)
 		if (!doc.id) {
 			throw new Error(`doc.id is required for doc_meta.upsert. Path: ${doc.path}`);
 		}
@@ -65,7 +85,7 @@ export class DocMetaRepo {
 		const exists = await this.existsByPath(doc.path);
 
 		if (exists) {
-			// Update existing record using id (more efficient and accurate)
+			// Update using id for precision
 			await this.updateById(doc.id, {
 				type: doc.type ?? null,
 				title: doc.title ?? null,
@@ -79,7 +99,7 @@ export class DocMetaRepo {
 				frontmatter_json: doc.frontmatter_json ?? null,
 			});
 		} else {
-			// Insert new record
+			// Create new entry
 			await this.insert({
 				id: doc.id,
 				path: doc.path,
@@ -98,7 +118,8 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Delete metadata rows for the given paths.
+	 * Deletes metadata for a list of file paths.
+	 * 删除一组文件路径的元数据。
 	 */
 	async deleteByPaths(paths: string[]): Promise<void> {
 		if (!paths.length) return;
@@ -106,15 +127,20 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Delete all document metadata.
+	 * Deletes all document metadata from the store.
+	 * 从存储中删除所有文档元数据。
 	 */
 	async deleteAll(): Promise<void> {
 		await this.db.deleteFrom('doc_meta').execute();
 	}
 
 	/**
-	 * Get all indexed file paths with their modification times.
-	 * Returns a map of path -> mtime for efficient lookup.
+	 * Fetches all indexed paths and their modification times.
+	 * Useful for full re-sync checks.
+	 * 
+	 * 获取所有已索引的路径及其修改时间。适用于完整的重新同步检查。
+	 * 
+	 * @returns A Map of path to modification timestamp.
 	 */
 	async getAllIndexedPaths(): Promise<Map<string, number>> {
 		const rows = await this.db.selectFrom('doc_meta').select(['path', 'mtime']).execute();
@@ -127,12 +153,8 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Batch get indexed paths with pagination.
-	 * Useful for processing large numbers of indexed paths without loading all at once.
-	 * 
-	 * @param offset - Number of rows to skip
-	 * @param limit - Maximum number of rows to return
-	 * @returns Array of { path, mtime } pairs
+	 * Fetches indexed paths in batches with pagination support.
+	 * 支持分页的批量获取已索引路径。
 	 */
 	async getIndexedPathsBatch(offset: number, limit: number): Promise<Array<{ path: string; mtime: number }>> {
 		const rows = await this.db
@@ -148,8 +170,10 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Batch check indexed status for multiple paths.
-	 * Returns a map of path -> { mtime, content_hash } for paths that are indexed.
+	 * Batch checks indexing status for multiple paths simultaneously.
+	 * 同时批量检查多个路径的索引状态。
+	 * 
+	 * @returns Map of path to { mtime, content_hash }.
 	 */
 	async batchCheckIndexed(paths: string[]): Promise<Map<string, { mtime: number; content_hash: string | null }>> {
 		if (!paths.length) return new Map();
@@ -170,7 +194,8 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Get document metadata by path.
+	 * Retrieves complete metadata for a single path.
+	 * 检索单个路径的完整元数据。
 	 */
 	async getByPath(path: string): Promise<DbSchema['doc_meta'] | null> {
 		const row = await this.db.selectFrom('doc_meta').selectAll().where('path', '=', path).executeTakeFirst();
@@ -178,7 +203,8 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Get document metadata by paths (batch).
+	 * Batched retrieval of metadata for multiple paths.
+	 * 批量检索多个路径的元数据。
 	 */
 	async getByPaths(paths: string[]): Promise<Map<string, DbSchema['doc_meta']>> {
 		if (!paths.length) return new Map();
@@ -191,7 +217,8 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Get document IDs by paths (batch).
+	 * Fetches document IDs associated with a list of paths.
+	 * 获取与路径列表关联的文档 ID。
 	 */
 	async getIdsByPaths(paths: string[]): Promise<{ id: string, path: string }[]> {
 		if (!paths.length) return [];
@@ -204,7 +231,8 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Get document metadata by IDs (batch).
+	 * Fetches metadata for a list of document IDs.
+	 * 获取文档 ID 列表的元数据。
 	 */
 	async getByIds(ids: string[]): Promise<DbSchema['doc_meta'][]> {
 		if (!ids.length) return [];
@@ -212,15 +240,18 @@ export class DocMetaRepo {
 	}
 
 	/**
-	 * Get document metadata by content hash.
+	 * Finds documents matching a specific content hash.
+	 * 查找匹配特定内容哈希的文档。
 	 */
 	async getByContentHash(contentHash: string): Promise<DbSchema['doc_meta'][]> {
 		return await this.db.selectFrom('doc_meta').selectAll().where('content_hash', '=', contentHash).execute();
 	}
 
 	/**
-	 * Batch get document metadata by content hashes.
-	 * Returns a set of content hashes that exist in doc_meta.
+	 * Efficiently checks which hashes in a list are already present in the database.
+	 * 高效地检查列表中的哪些哈希已存在于数据库中。
+	 * 
+	 * @returns A Set of existing content hashes.
 	 */
 	async batchGetByContentHashes(contentHashes: string[]): Promise<Set<string>> {
 		if (!contentHashes.length) return new Set();

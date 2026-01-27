@@ -1,3 +1,55 @@
+/**
+ * ============================================================================
+ * 文件说明: service-conversation.ts - 对话服务
+ * ============================================================================
+ * 
+ * 【这个文件是干什么的】
+ * 这个文件负责管理单个对话（Conversation）的完整生命周期，包括创建对话、
+ * 发送消息、接收 AI 回复、管理上下文窗口等。就像一个专业的对话助手，
+ * 负责记录你和 AI 的每一轮交流。
+ * 
+ * 【起了什么作用】
+ * 1. 对话管理: 创建、更新、删除对话，管理对话的元数据（标题、时间等）
+ * 2. 消息处理: 处理用户消息和 AI 回复，维护消息历史
+ * 3. 上下文构建: 为 AI 构建合适的上下文（历史消息、附加资源、用户画像等）
+ * 4. 流式输出: 支持流式接收 AI 回复，实时显示生成的内容
+ * 5. 资源管理: 处理对话中的附件（图片、PDF、文档等）
+ * 6. 自动摘要: 自动生成对话摘要，帮助快速回顾
+ * 
+ * 【举例介绍】
+ * 当你与 AI 进行一次对话时：
+ * 
+ * 1. 创建对话：
+ *    createConversation({ title: "讨论项目计划", project: myProject })
+ *    - 生成唯一的对话 ID
+ *    - 创建对话文件
+ *    - 初始化对话元数据
+ * 
+ * 2. 发送消息：
+ *    sendMessage(conversation, "帮我分析这个项目的风险")
+ *    - 构建上下文：包含历史消息、项目资源、用户偏好
+ *    - 调用 AI 模型生成回复
+ *    - 流式返回结果，边生成边显示
+ *    - 保存完整的消息记录
+ * 
+ * 3. 添加资源：
+ *    - 上传文件或添加笔记链接
+ *    - 自动生成资源摘要
+ *    - 将资源纳入对话上下文
+ * 
+ * 4. 自动功能：
+ *    - 自动生成对话标题（基于前几条消息）
+ *    - 自动更新对话摘要
+ *    - 智能管理上下文窗口大小
+ * 
+ * 【技术实现】
+ * - 使用 AsyncGenerator 实现流式输出
+ * - ContextBuilder 负责智能构建上下文
+ * - ResourceLoaderManager 处理各种类型的附件
+ * - 与存储层解耦，通过 ChatStorageService 持久化
+ * ============================================================================
+ */
+
 import { App } from 'obsidian';
 import { generateUuidWithoutHyphens } from '@/core/utils/id-utils';
 import { LLMProviderService, LLMUsage, LLMOutputControlSettings, LLMStreamEvent, ToolEvent } from '@/core/providers/types';
@@ -40,12 +92,43 @@ interface ChatPreparationResult {
 }
 
 /**
+ * 对话管理服务
+ * 
+ * 【核心职责】
+ * 负责处理用户与 AI 之间的对话，是整个聊天功能的核心
+ * 
+ * 【主要功能】
+ * 1. 创建和管理对话
+ * 2. 发送消息并接收 AI 回复
+ * 3. 构建上下文（历史消息、资源、用户画像）
+ * 4. 处理文件上传和资源管理
+ * 5. 生成对话摘要
+ * 
  * Service for managing chat conversations.
  */
 export class ConversationService {
+	// 上下文构建器：负责为 AI 组装合适的上下文
+	// 包括历史消息、系统提示词、用户画像等
 	private readonly contextBuilder: ContextBuilder;
+	
+	// 资源加载器管理器：处理各种类型的附件
+	// 支持图片、PDF、音频、Obsidian 笔记等
 	private readonly resourceLoaderManager: ResourceLoaderManager;
 
+	/**
+	 * 构造函数
+	 * 
+	 * 【参数说明】
+	 * @param app - Obsidian 应用实例，用于访问 vault、文件系统等
+	 * @param storage - 存储服务，负责对话的持久化存储
+	 * @param chat - LLM 提供商服务，用于与 AI 模型通信
+	 * @param promptService - 提示词服务，管理各种提示词模板
+	 * @param defaultModel - 默认使用的 AI 模型（如 {provider: 'openai', modelId: 'gpt-4'})
+	 * @param resourceSummaryService - 资源摘要服务，为上传的文件生成摘要
+	 * @param aiServiceManager - AI 服务管理器，用于访问其他服务
+	 * @param profileService - 用户画像服务（可选），提供个性化信息
+	 * @param settings - 插件设置（可选）
+	 */
 	constructor(
 		private readonly app: App,
 		private readonly storage: ChatStorageService,
@@ -57,31 +140,125 @@ export class ConversationService {
 		private readonly profileService?: UserProfileService,
 		private readonly settings?: AIServiceSettings,
 	) {
-		this.resourceLoaderManager = new ResourceLoaderManager(this.app, this.aiServiceManager, DocumentLoaderManager.getInstance());
+		// 创建资源加载器管理器
+		// 这个管理器能处理各种类型的资源：
+		// - 图片（PNG, JPG）：转为 base64 发给支持视觉的 AI
+		// - PDF：提取文本内容
+		// - 音频/视频：转写为文本
+		// - Obsidian 笔记：读取内容并解析链接
+		this.resourceLoaderManager = new ResourceLoaderManager(
+			this.app,                              // Obsidian 应用实例
+			this.aiServiceManager,                 // 用于访问其他服务（如语音转写）
+			DocumentLoaderManager.getInstance()    // 文档加载器（用于加载 Obsidian 笔记）
+		);
+		
+		// 初始化上下文构建器
+		// 这个构建器是智能对话的关键，它会：
+		// 1. 选择合适的历史消息（避免超过上下文窗口）
+		// 2. 添加系统提示词（告诉 AI 它的角色和任务）
+		// 3. 注入用户画像（让 AI 了解用户的偏好）
+		// 4. 添加相关资源（附件、引用的笔记等）
 		// Initialize context builder
 		this.contextBuilder = new ContextBuilder(
-			this.promptService,
-			this.resourceSummaryService,
-			this.profileService,
+			this.promptService,            // 提示词服务
+			this.resourceSummaryService,   // 资源摘要服务
+			this.profileService,           // 用户画像服务
 		);
 	}
 
 	/**
+	 * 列出对话，可按项目筛选
+	 * 
+	 * 【功能说明】
+	 * 获取对话列表，支持分页和按项目筛选
+	 * 
+	 * 【参数说明】
+	 * @param projectId - 项目 ID（null 表示获取所有对话）
+	 * @param limit - 每页数量（可选）
+	 * @param offset - 跳过的数量（可选）
+	 * 
+	 * 【使用示例】
+	 * // 获取所有对话
+	 * const all = await service.listConversations(null);
+	 * 
+	 * // 获取特定项目的对话
+	 * const projectConvs = await service.listConversations('proj_123');
+	 * 
+	 * // 分页查询：第2页，每页20条
+	 * const page2 = await service.listConversations(null, 20, 20);
+	 * 
 	 * List conversations, optionally filtered by project.
 	 * Supports pagination with limit and offset.
 	 */
 	async listConversations(projectId: string | null, limit?: number, offset?: number): Promise<ChatConversation[]> {
+		// 直接委托给存储服务来查询
+		// 存储服务会扫描 Chats/ 文件夹，读取 frontmatter
+		// 如果指定了 projectId，只返回该项目下的对话
 		return this.storage.listConversations(projectId, limit, offset);
 	}
 
 	/**
+	 * 统计对话数量
+	 * 
+	 * 【功能说明】
+	 * 计算对话的总数，可按项目筛选
+	 * 
+	 * 【参数说明】
+	 * @param projectId - 项目 ID（null 表示统计所有对话）
+	 * 
+	 * 【使用场景】
+	 * 用于分页显示，计算总页数
+	 * 
+	 * 【使用示例】
+	 * const total = await service.countConversations(null);
+	 * const pageCount = Math.ceil(total / pageSize);
+	 * 
 	 * Count conversations, optionally filtered by project.
 	 */
 	async countConversations(projectId: string | null): Promise<number> {
+		// 直接委托给存储服务来统计
+		// 存储服务会扫描 Chats/ 文件夹并计数
 		return this.storage.countConversations(projectId);
 	}
 
 	/**
+	 * 创建新对话
+	 * 
+	 * 【功能说明】
+	 * 创建一个新的聊天对话，可以选择性地添加初始消息
+	 * 
+	 * 【参数说明】
+	 * @param params 
+	 *   - title: 对话标题，例如："讨论项目计划"
+	 *   - project: 所属项目（可选），例如：{ id: 'proj_123', title: 'React学习' }
+	 *   - initialMessages: 初始消息（可选），例如：[{ role: 'user', content: '你好' }]
+	 *   - modelId: 使用的模型 ID（可选），例如：'gpt-4'
+	 *   - provider: AI 提供商（可选），例如：'openai'
+	 * 
+	 * 【返回值】
+	 * 返回创建的对话对象，包含 ID、元数据、消息等
+	 * 
+	 * 【执行流程】
+	 * 1. 生成对话 ID 和元数据
+	 * 2. 保存到文件系统（创建 .md 文件）
+	 * 3. 触发对话创建事件（通知其他服务）
+	 * 
+	 * 【使用示例】
+	 * // 创建空白对话
+	 * const conv1 = await service.createConversation({
+	 *   title: '新对话'
+	 * });
+	 * 
+	 * // 创建带初始消息的对话
+	 * const conv2 = await service.createConversation({
+	 *   title: 'React 咨询',
+	 *   project: myProject,
+	 *   initialMessages: [
+	 *     { role: 'user', content: '请介绍 React Hooks' }
+	 *   ],
+	 *   modelId: 'gpt-4'
+	 * });
+	 * 
 	 * Create a new conversation with optional seed messages.
 	 */
 	async createConversation(params: {
@@ -91,33 +268,72 @@ export class ConversationService {
 		modelId?: string;
 		provider?: string;
 	}): Promise<ChatConversation> {
+		// 获取当前时间戳
+		// 用于记录对话的创建和更新时间
 		const timestamp = Date.now();
+		
+		// 构建对话元数据
+		// 元数据包含对话的所有关键信息，会保存在文件的 frontmatter 中
 		const meta: ChatConversationMeta = {
+			// 生成唯一的对话 ID（无连字符的 UUID）
+			// 例如："abc123def456"，用作文件名和标识符
 			id: generateUuidWithoutHyphens(),
+			
+			// 对话标题，显示在对话列表中
+			// 如果用户没提供标题，后续可以根据前几条消息自动生成
 			title: params.title,
+			
+			// 所属项目 ID（如果有的话）
+			// 这样可以将对话组织到项目下，例如："React学习"项目下的多个对话
 			projectId: params.project?.id,
+			
+			// 创建时间戳（毫秒）
+			// 用于排序和显示创建时间
 			createdAtTimestamp: timestamp,
+			
+			// 最后更新时间戳（毫秒）
+			// 每次发送消息时会更新，用于排序"最近使用"
 			updatedAtTimestamp: timestamp,
+			
+			// 当前使用的 AI 模型
+			// 如果没指定，使用默认模型（如 'gpt-4'）
 			activeModel: params.modelId || this.defaultModel.modelId,
+			
+			// 当前使用的 AI 提供商
+			// 如果没指定，使用默认提供商（如 'openai'）
 			activeProvider: params.provider || this.defaultModel.provider,
+			
+			// Token 使用总量（初始为 0）
+			// 每次发送消息后会累加，用于统计成本
 			tokenUsageTotal: 0,
 		};
 
+		// 获取初始消息
+		// 如果没有提供初始消息，使用空数组
 		const messages = params.initialMessages ?? [];
+		
+		// 保存对话到文件系统
+		// 这会创建一个 Chats/conv_xxx.md 文件
+		// 文件包含：frontmatter（元数据）+ 消息内容（Markdown 格式）
 		const conversation = await this.storage.saveConversation(
-			params.project ?? null,
-			meta,
-			undefined, // context
-			messages // messages
+			params.project ?? null,  // 项目信息（可选）
+			meta,                    // 对话元数据
+			undefined,               // 上下文信息（首次创建时为空）
+			messages                 // 初始消息列表
 		);
 
+		// 触发对话创建事件
+		// 其他服务（如统计服务、索引服务）会监听这个事件并做出响应
+		// 例如：统计服务会记录"今天创建了几个对话"
 		// Trigger conversation created event
 		const eventBus = EventBus.getInstance(this.app);
 		eventBus.dispatch(new ConversationCreatedEvent({
-			conversationId: conversation.meta.id,
-			projectId: conversation.meta.projectId ?? null,
+			conversationId: conversation.meta.id,  // 新建对话的 ID
+			projectId: conversation.meta.projectId ?? null,  // 所属项目 ID（如果有）
 		}));
 
+		// 返回创建的对话对象
+		// 包含完整的元数据和消息列表
 		return conversation;
 	}
 

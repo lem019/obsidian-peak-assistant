@@ -5,8 +5,17 @@ import { sql } from 'kysely';
 export type DocStatistics = DbSchema['doc_statistics'];
 
 /**
- * CRUD repository for `doc_statistics` table.
- * This table combines document statistics and recent open tracking.
+ * Document Statistics Repository
+ * 
+ * Manages the `doc_statistics` table, which tracks document metrics (word/count), 
+ * metadata (language), and usage history (open counts/last access time). 
+ * This repository is vital for features like "Most Recent Files" and 
+ * document richness analysis.
+ * 
+ * 文档统计信息存储库
+ * 
+ * 管理 `doc_statistics` 表，该表跟踪文档指标（字数/计数）、元数据（语言）
+ * 和使用历史记录（打开次数/最后访问时间）。此存储库对于“最近使用的文件”和文档丰富度分析等功能至关重要。
  */
 export class DocStatisticsRepo {
 	constructor(private readonly db: Kysely<DbSchema>) {}

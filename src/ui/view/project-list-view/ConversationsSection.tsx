@@ -15,6 +15,30 @@ import { TYPEWRITER_EFFECT_SPEED_MS, DEFAULT_NEW_CONVERSATION_TITLE, MAX_CONVERS
 import { formatRelativeDate } from '@/ui/view/shared/date-utils';
 import { MoreHorizontal } from 'lucide-react';
 
+/**
+ * ## ConversationsSection
+ * 
+ * **What is this for?**
+ * This component renders the "Recent Conversations" section in the main sidebar (ProjectListView). It serves as a quick-access list for recently modified or created chat sessions.
+ * 
+ * **What does it do?**
+ * 1. Displays a list of the most recent conversations (global scope).
+ * 2. Provides a "New Conversation" button to start a fresh chat.
+ * 3. Allows users to click conversations to switch the active session.
+ * 4. Provides a context menu (Edit title, Open source file).
+ * 5. Implements a typewriter effect for newly created or renamed titles.
+ * 
+ * **Example:**
+ * ```tsx
+ * <ConversationsSection />
+ * ```
+ * 
+ * **Technical Implementation:**
+ * - **State Management**: Uses `projectStore` for data and `chatViewStore` for UI routing.
+ * - **Typewriter Logic**: Managed via `useTypewriterEffect` and a localized `typewriterEnabled` Map.
+ * - **Reusability**: Exports `ConversationList` which is also utilized by `ProjectsSection` for nested rendering.
+ */
+
 interface ConversationsSectionProps {
 }
 
@@ -145,6 +169,7 @@ export const ConversationsSection: React.FC<ConversationsSectionProps> = () => {
 	const [typewriterEnabled, setTypewriterEnabled] = useState<Map<string, boolean>>(new Map());
 
 	const handleNewConversation = async () => {
+		// 设置待创建的对话状态并通知 Obsidian 切换视图
 		setPendingConversation({
 			title: DEFAULT_NEW_CONVERSATION_TITLE,
 			project: null,
@@ -153,11 +178,13 @@ export const ConversationsSection: React.FC<ConversationsSectionProps> = () => {
 	};
 
 	const handleConversationClick = async (conversation: ChatConversation) => {
+		// 切换当前激活的对话
 		setActiveConversation(conversation);
 		await notifySelectionChange(app, conversation);
 	};
 
 	const handleEditConversationTitle = useCallback((conversation: ChatConversation) => {
+		// 打开标题重命名弹窗
 		setInputModalConfig({
 			message: 'Enter conversation title',
 			placeholderText: 'Conversation title',
@@ -270,12 +297,14 @@ export const ConversationsSection: React.FC<ConversationsSectionProps> = () => {
 
 	return (
 		<div className="pktw-flex pktw-flex-col">
+			{/* 区块标题行：包含收起/展开切换以及“新建对话”按钮 */}
 			{/* Header */}
 			<div
 				className="pktw-flex pktw-items-center pktw-justify-between pktw-gap-2 pktw-cursor-pointer pktw-rounded pktw-transition-all hover:pktw-bg-muted hover:pktw-shadow-sm pktw-group"
 				onClick={() => toggleConversationsCollapsed()}
 			>
 				<div className="pktw-flex pktw-items-center pktw-gap-2">
+					{/* 根据折叠状态切换箭头方向 */}
 					{isConversationsCollapsed ? (
 						<ChevronRight className="pktw-w-3 pktw-h-3 pktw-shrink-0 pktw-text-foreground group-hover:pktw-text-gray-900 pktw-transition-colors" />
 					) : (
@@ -283,6 +312,8 @@ export const ConversationsSection: React.FC<ConversationsSectionProps> = () => {
 					)}
 					<h3 className="pktw-flex-1 pktw-m-0 pktw-text-[13px] pktw-font-semibold pktw-text-foreground pktw-uppercase pktw-tracking-wide">Conversations</h3>
 				</div>
+				
+				{/* 新建对话按钮 */}
 				<IconButton
 					size="lg"
 					className="pktw-shrink-0 group-hover:pktw-bg-gray-200 group-hover:pktw-shadow-sm hover:pktw-shadow-sm"
@@ -296,6 +327,7 @@ export const ConversationsSection: React.FC<ConversationsSectionProps> = () => {
 				</IconButton>
 			</div>
 
+			{/* 内容主体：渲染最近对话列表 */}
 			{/* Conversations List */}
 			<div className={cn(
 				'pktw-flex pktw-flex-col pktw-gap-px pktw-overflow-hidden pktw-transition-all pktw-duration-150 pktw-ease-in-out',

@@ -1,3 +1,12 @@
+/**
+ * @file ChatStore.ts
+ * @description 聊天数据存储服务。
+ * 负责管理聊天项目、对话和消息的持久化：
+ * 1. 使用文件系统存储对话内容（Markdown 格式）
+ * 2. 使用 SQLite 存储元数据（项目信息、对话列表等）
+ * 3. 提供统一的 CRUD 接口供上层服务调用
+ */
+
 import { App, normalizePath, TFile, TFolder } from 'obsidian';
 import { CHAT_PROJECT_SUMMARY_FILENAME, DEFAULT_NEW_CONVERSATION_TITLE } from '@/core/constant';
 import {

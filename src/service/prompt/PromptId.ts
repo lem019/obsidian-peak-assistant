@@ -1,4 +1,100 @@
+/**
+ * ============================================================================
+ * 文件说明: PromptId.ts - 提示词标识符与注册表
+ * ============================================================================
+ * 
+ * 【这个文件是干什么的】
+ * 这个文件是整个提示词系统的"目录"和"索引"，集中管理所有提示词的 ID、模板内容和类型定义。
+ * 就像一本"剧本目录"，列出了所有可用的剧本（提示词模板）及其用途。
+ * 
+ * 【起了什么作用】
+ * 1. **提示词枚举**：定义所有提示词的唯一标识符（PromptId 枚举）
+ * 2. **模板注册**：将模板文件导入并注册到全局注册表（PROMPT_REGISTRY）
+ * 3. **类型安全**：为每个提示词定义变量类型（PromptVariables），确保调用时参数正确
+ * 4. **配置管理**：定义哪些提示词允许在设置界面配置模型
+ * 5. **中心化管理**：所有提示词相关的定义都在这一个文件中，便于维护
+ * 
+ * 【举例介绍】
+ * 场景 1：添加新提示词
+ * ```typescript
+ * // 第 1 步：创建模板文件 templates/my-new-prompt.ts
+ * export const template = `你的提示词模板 {{variable}}`;
+ * 
+ * // 第 2 步：在 PromptId 枚举中添加
+ * export enum PromptId {
+ *   MyNewPrompt = 'my-new-prompt',  // 添加这一行
+ * }
+ * 
+ * // 第 3 步：在 PromptVariables 中定义变量类型
+ * export interface PromptVariables {
+ *   'my-new-prompt': { variable: string };  // 添加这一行
+ * }
+ * 
+ * // 第 4 步：在 PROMPT_REGISTRY 中注册
+ * export const PROMPT_REGISTRY: Record<PromptId, PromptTemplate> = {
+ *   [PromptId.MyNewPrompt]: createTemplate(myNewPrompt),  // 添加这一行
+ * };
+ * 
+ * // 完成！现在可以使用了
+ * await promptService.chatWithPrompt(PromptId.MyNewPrompt, { variable: '测试' });
+ * ```
+ * 
+ * 场景 2：查看所有提示词用途
+ * ```typescript
+ * // 对话相关
+ * PromptId.ConversationSystem          // 对话系统提示词（定义 AI 的角色）
+ * PromptId.ConversationSummaryShort    // 生成对话的短摘要
+ * PromptId.ConversationSummaryFull     // 生成对话的完整摘要
+ * 
+ * // 搜索相关
+ * PromptId.SearchAiSummary             // 为搜索结果生成 AI 摘要
+ * PromptId.SearchTopicExtractJson      // 从搜索结果提取主题（JSON 格式）
+ * PromptId.SearchRerankRankGpt         // 使用 GPT 对搜索结果重排序
+ * 
+ * // 用户画像相关
+ * PromptId.MemoryExtractCandidatesJson // 从对话中提取记忆候选项
+ * PromptId.UserProfileUpdateJson       // 更新用户画像
+ * 
+ * // 文档分析相关
+ * PromptId.DocSummary                  // 生成文档摘要
+ * PromptId.DocTypeClassifyJson         // 分类文档类型
+ * PromptId.DocTagGenerateJson          // 为文档生成标签
+ * ```
+ * 
+ * 场景 3：类型安全的变量传递
+ * ```typescript
+ * // ✅ 正确：类型系统会检查变量
+ * await promptService.chatWithPrompt(
+ *   PromptId.ConversationSummaryShort,
+ *   { messages: [...] }  // TypeScript 知道需要 messages 参数
+ * );
+ * 
+ * // ❌ 错误：类型系统会报错
+ * await promptService.chatWithPrompt(
+ *   PromptId.ConversationSummaryShort,
+ *   { wrongParam: '...' }  // TypeScript 报错：缺少 messages 参数
+ * );
+ * ```
+ * 
+ * 【核心数据结构】
+ * 1. **PromptId**：枚举类型，定义所有提示词的唯一标识
+ * 2. **PromptTemplate**：接口，定义模板的结构（template 文本、是否期望 JSON 输出等）
+ * 3. **PromptVariables**：接口，定义每个提示词需要的变量类型
+ * 4. **PROMPT_REGISTRY**：注册表，映射 PromptId 到具体的模板内容
+ * 5. **CONFIGURABLE_PROMPTS**：数组，列出哪些提示词允许在设置中配置模型
+ * 
+ * 【模板分类】
+ * - **Chat**：对话系统相关（system prompt、摘要生成等）
+ * - **Search**：搜索功能相关（AI 摘要、主题提取、重排序）
+ * - **Memory/Profile**：用户画像和记忆管理
+ * - **Document**：文档分析（摘要、分类、标签生成）
+ * - **Application**：应用功能（标题生成、提示词优化）
+ * - **Context**：上下文构建（内部使用的模板）
+ * ============================================================================
+ */
+
 // Import all prompt templates
+// 导入所有提示词模板
 import * as conversationSystem from './templates/conversation-system';
 import * as conversationSummaryShort from './templates/conversation-summary-short';
 import * as conversationSummaryFull from './templates/conversation-summary-full';

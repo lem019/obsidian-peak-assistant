@@ -1,3 +1,10 @@
+/**
+ * @file EventDispatcher.ts
+ * @description 统一事件调度器。
+ * 负责处理 Obsidian 原生事件（Vault, Metadata, Workspace, DOM）以及自定义脚本事件。
+ * 引入了缓冲（Buffering）机制，将高频触发的事件（如内容修改）合并并在 1 秒后统一分发，从而显着提高大型库下的性能。
+ */
+
 import { EventRef, Plugin, App, TAbstractFile, TFile, CachedMetadata, WorkspaceLeaf, WorkspaceWindow, Menu, Editor, MarkdownView, MarkdownFileInfo, Tasks, Notice } from "obsidian";
 import * as path from "path";
 import { Callback, loadScriptsForEvent } from "./ScriptLoader";
@@ -9,12 +16,14 @@ type EventHandler<T = any> = (data: T) => void;
  *
  * Initially designed to avoid dependency on Obsidian's event system, but currently uses
  * Obsidian's event mechanism temporarily. This file is rarely used as a result.
- *
- * Design flow:
- * 1. Obsidian triggers events => find all handlers => dispatch to corresponding handlers
- * 2. Initialize EventDispatcher => listen to all Obsidian events => register default dispatch handlers
- * 3. addNewHandler => modify dispatch handlers
- * 4. Unload all event listeners
+ * 
+ * 事件调度中心，用于处理 Obsidian 事件和自定义事件。
+ * 
+ * 设计流程：
+ * 1. Obsidian 触发事件 => 查找所有处理器 => 派发给对应处理器
+ * 2. 初始化 EventDispatcher => 监听所有 Obsidian 事件 => 注册默认分发处理器
+ * 3. addNewHandler => 修改分发处理器
+ * 4. 卸载所有事件监听器
  *
  * TODO: Should support pushing custom events that others can subscribe to, not just handling
  * Obsidian's internal events. Custom events could be created like Kafka, making plugin
@@ -23,6 +32,8 @@ type EventHandler<T = any> = (data: T) => void;
 export class EventDispatcher {
     /**
      * Event references for easy cleanup
+     * 
+     * 存储各类事件引用，以便在卸载时统一清理，防止内存泄漏。
      */
     private vaultEventRefs: EventRef[] = [];
     private metadataCacheEventRefs: EventRef[] = [];
@@ -33,12 +44,17 @@ export class EventDispatcher {
     /**
      * Event handlers
      * Key format: e.g., "dom-click", "workspace-editor-change"
+     * 
+     * 注册的事件处理器容器。
      */
     private handlers: { [key: string]: EventHandler[] } = {};
 
     /**
      * Event buffering for performance optimization
      * Too many events occur, reduce processing load and improve performance.
+     * 
+     * 事件缓冲机制。
+     * 针对 Obsidian 频繁触发的事件（如输入、自动保存），将数据暂存在 buffer 中。
      */
     private eventBuffer: { [key: string]: any[] } = {};
     private timeoutIds: { [key: string]: NodeJS.Timeout | null } = {};
@@ -54,6 +70,11 @@ export class EventDispatcher {
         // this.registerWorkspaceEvents();
     }
 
+    /**
+     * Entry point for script-based event automation
+     * 
+     * 为指定的脚本文件夹添加监听器。当文件夹内的脚本发生变化时，会自动重新加载。
+     */
     public addScriptFolderListener(scriptFolderPath: string) {
         this.loadFromScriptFolder(scriptFolderPath)
         this.addNewHandler("vault-modify", (data) => {
@@ -67,6 +88,11 @@ export class EventDispatcher {
         })
     }
 
+    /**
+     * Handle folder changes to reload script events
+     * 
+     * 监听脚本文件夹的变化。如果文件夹内的文件被修改，则清空当前所有监听并重新加载。
+     */
     private async onScriptFolderChange(changedFileParam: any, scriptFolderPath: string) {
         // console.log(`File changed 1: `, changedFileParam, scriptFolderPath);
 
@@ -86,6 +112,11 @@ export class EventDispatcher {
         new Notice('Peak Assistant. Event Scripts Reload!');
     }
 
+    /**
+     * Load custom scripts from the specified folder
+     * 
+     * 从脚本文件夹加载事件。利用 ScriptLoader 执行并提取回调函数。
+     */
     private loadFromScriptFolder(scriptFolderPath: string) {
         const basePath = (this.app.vault.adapter as any).basePath
         // load events
@@ -107,7 +138,11 @@ export class EventDispatcher {
     }
 
     /**
+     * Register a new event handler
      * @param eventName eg:  "dom-click" "workspace-editor-change"
+     * 
+     * 注册新的事件处理器。
+     * 根据 eventName 的前缀（如 vault-, dom-, workspace-）自动分流到对应的 Obsidian 原生 API 注册逻辑。
      */
     public addNewHandler<T>(eventName: string, handler: EventHandler<T>) {
         if (!this.handlers[eventName]) {
@@ -150,6 +185,11 @@ export class EventDispatcher {
         // Writing remove is too complicated. Can just clear all and reload.
     }
 
+    /**
+     * Unload all events and clear memory refs
+     * 
+     * 彻底清理所有事件监听。
+     */
     public unload() {
         // Clearing handlers will also cause DOM events to be removed.
         // Assumption: DOM event handlers will be garbage collected by VM if not held.
@@ -164,6 +204,9 @@ export class EventDispatcher {
     /**
      * JavaScript single-threaded mechanism. No need to handle concurrent update issues.
      * I.e., data loss when setting data while processing.
+     * 
+     * 核心缓冲逻辑。
+     * 将事件数据推入队列，并开启 1 秒窗口。如果 1 秒内有多次触发，数据会堆积。
      */
     private bufferDispatch(event: string, data: any) {
         // Return directly if no corresponding event handler
@@ -187,6 +230,9 @@ export class EventDispatcher {
     /**
      * JavaScript single-threaded mechanism. No need to handle concurrent update issues.
      * I.e., data loss when setting data while processing.
+     * 
+     * 核心派发逻辑。
+     * 1 秒到期后，将队列中积累的所有数据作为数组一次性派发给处理器。
      */
     private realDispatch(event: string) {
         // Process specific event
@@ -209,6 +255,11 @@ export class EventDispatcher {
         }
     }
 
+    /**
+     * Register Window level events
+     * 
+     * 注册 Window 级别事件（如窗口大小变化、各种 DOM 事件）。
+     */
     private registerWindowEvents(eventName: string) {
         const windowEventListener = (evt: Event) => {
             this.domBufferDispatch(eventName, evt)
@@ -222,7 +273,10 @@ export class EventDispatcher {
     }
 
     /**
+     * Register DOM events on the document
      * @param eventName eg: "click"
+     * 
+     * 注册常规 DOM 事件（如主文档点击）。
      */
     private registerDomEvents(eventName: string) {
         const validEventName = eventName as keyof DocumentEventMap;
@@ -235,6 +289,11 @@ export class EventDispatcher {
         this.bufferDispatch('dom-' + eventName, evt)
     }
 
+    /**
+     * Register Vault (File System) events
+     * 
+     * 注册库级事件（文件创建、修改、删除、重命名）。
+     */
     private registerVaultEvents(eventName: string) {
         switch (eventName) {
             case 'create':
@@ -272,6 +331,11 @@ export class EventDispatcher {
         this.bufferDispatch('vault-' + eventName, evt)
     }
 
+    /**
+     * Register Metadata Cache events
+     * 
+     * 注册元数据缓存事件。
+     */
     private registerMetadataCacheEvents(eventName: string) {
         switch (eventName) {
             case 'changed':
@@ -306,6 +370,11 @@ export class EventDispatcher {
         this.bufferDispatch('metadataCache-' + eventName, evt)
     }
 
+    /**
+     * Register Workspace (UI/Interface) events
+     * 
+     * 注册工作区 UI 事件（如文件打开、布局改变、右键菜单、编辑器内容改变等）。
+     */
     private registerWorkspaceEvents(eventName: string) {
         switch (eventName) {
             case 'quick-preview':
@@ -446,9 +515,11 @@ export class EventDispatcher {
     }
 
     /**
-     * 
+     * Parse event string to categorize source
      * @param str eg: "dom-click" "workspace-editor-change"
      * @returns eg: ["dom", click] ["workspace", "editor-change"]
+     * 
+     * 将 eventName 字符串解析为 [来源, 具体事件名] 的元组。
      */
     private extractEventName(str: string) {
         const hyphenIndex = str.indexOf('-');

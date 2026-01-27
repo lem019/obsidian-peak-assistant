@@ -1,5 +1,22 @@
 /**
+ * @file ChatProjectSummaryDoc.ts
+ * @description 项目摘要文档模型。
+ * 
+ * ## 核心职能
+ * 负责生成和解析项目级别的摘要 Markdown 文件。这些文件通常存储在项目根目录下，用于向用户展示该项目（对话集合）的整体简述。
+ * 
+ * ## 结构规范
+ * - ## Short Summary (Level 2 Heading)
+ * - ## Full Summary (Level 2 Heading)
+ * 
+ * ## 生活化类比
+ * 就像是一本书的“内容导读”或“内容提要”。它不记录具体的对话内容，而是把这整个“项目文件夹”里发生的所有的事概括成一段话，方便你以后快速回想这个项目是在干什么。
+ */
+
+/**
  * Document model for project summary markdown (plain text, no meta).
+ * 
+ * 项目摘要 Markdown 的文档模型（纯文本，无元数据）。
  */
 export interface ChatProjectSummaryModel {
 	shortSummary: string;
@@ -9,6 +26,8 @@ export interface ChatProjectSummaryModel {
 export class ChatProjectSummaryDoc {
 	/**
 	 * Build project summary markdown (plain text, no meta).
+	 * 
+	 * 构建项目摘要 Markdown（纯文本，无元数据）。
 	 */
 	static buildMarkdown(params: {
 		shortSummary?: string;

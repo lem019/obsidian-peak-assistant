@@ -1,3 +1,64 @@
+/**
+ * ============================================================================
+ * 文件说明: UserProfileService.ts - 用户画像服务
+ * ============================================================================
+ * 
+ * 【这个文件是干什么的】
+ * 这个文件实现了"用户画像"功能，让 AI 能够记住你的偏好、习惯、专业领域等个人信息，
+ * 从而提供更个性化、更符合你需求的回答。
+ * 
+ * 【起了什么作用】
+ * 1. 自动提取：从对话中自动提取关于你的信息（事实、偏好、习惯等）
+ * 2. 智能分类：将信息分类存储（专业领域、工具偏好、沟通风格等 10 个类别）
+ * 3. 置信度评分：AI 会给每条信息打分（0-1），低置信度的信息会被过滤
+ * 4. 持续更新：随着对话积累，用户画像会不断更新和完善
+ * 5. 上下文注入：在每次对话时，AI 会自动读取你的画像，提供更贴合你的回答
+ * 
+ * 【举例介绍】
+ * 场景 1：AI 记住你的专业背景
+ * - 你：我是一名前端开发者，主要用 React 和 TypeScript
+ * - AI 提取信息：
+ *   - category: "expertise-area"（专业领域）
+ *   - text: "用户是前端开发者，擅长 React 和 TypeScript"
+ *   - confidence: 0.9（高置信度）
+ * - 下次你问"如何优化性能"时，AI 会自动针对 React 给出建议
+ * 
+ * 场景 2：AI 记住你的偏好
+ * - 你：我喜欢简洁的代码风格，不喜欢过度封装
+ * - AI 提取信息：
+ *   - category: "preference"（偏好）
+ *   - text: "用户偏好简洁代码，避免过度封装"
+ *   - confidence: 0.85
+ * - 之后 AI 生成代码时会遵循你的风格偏好
+ * 
+ * 场景 3：AI 记住你的工作模式
+ * - 你：我通常在早上整理笔记，下午写代码
+ * - AI 提取信息：
+ *   - category: "work-pattern"（工作模式）
+ *   - text: "用户早上整理笔记，下午编码"
+ *   - confidence: 0.75
+ * - 当你问"现在做什么合适"时，AI 会参考时间给出建议
+ * 
+ * 【10 个信息分类】
+ * 1. fact（事实）：客观信息，如职业、所在地等
+ * 2. preference（偏好）：喜好和厌恶
+ * 3. decision（决策）：你做过的重要决定
+ * 4. habit（习惯）：日常习惯和行为模式
+ * 5. communication-style（沟通风格）：你喜欢的交流方式
+ * 6. work-pattern（工作模式）：工作习惯和时间安排
+ * 7. tool-preference（工具偏好）：喜欢使用的工具和技术
+ * 8. expertise-area（专业领域）：你擅长的领域和技能
+ * 9. response-style（回复风格）：你希望 AI 如何回答
+ * 10. other（其他）：无法归类的信息
+ * 
+ * 【技术实现】
+ * - 使用 LLM 从对话中提取候选信息（JSON 格式）
+ * - 置信度阈值过滤（默认 >= 0.7）
+ * - 存储在专门的 Markdown 文件中（带 Frontmatter）
+ * - 支持批量更新和增量添加
+ * ============================================================================
+ */
+
 import { App, TFile } from 'obsidian';
 import { PromptService } from '@/service/prompt/PromptService';
 import { PromptId } from '@/service/prompt/PromptId';
@@ -7,6 +68,7 @@ import { USER_PROFILE_MIN_CONFIDENCE_THRESHOLD } from '@/core/constant';
 
 /**
  * User profile category constants.
+ * 用户画像的有效分类常量（10 种）
  */
 export const USER_PROFILE_VALID_CATEGORIES = [
 	'fact',

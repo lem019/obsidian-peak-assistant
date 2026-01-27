@@ -12,8 +12,16 @@ import { getDefaultDocumentSummary } from './helper/DocumentLoaderHelpers';
 import mammoth from 'mammoth';
 
 /**
- * DOCX document loader using mammoth.
- * Parses DOCX directly from buffer without temporary files.
+ * DOCX Document Loader
+ * 
+ * Uses the `mammoth` library to extract raw text from Microsoft Word (.docx) files.
+ * It reads the file as a binary buffer and processes it to generate a text-based cache 
+ * suitable for indexing and summarization.
+ * 
+ * DOCX 文档加载器
+ * 
+ * 使用 `mammoth` 库从 Microsoft Word (.docx) 文件中提取原始文本。
+ * 它将文件读取为二进制 Buffer 并进行处理，生成适用于索引和摘要的文本缓存。
  */
 export class DocxDocumentLoader implements DocumentLoader {
 	constructor(
@@ -21,14 +29,30 @@ export class DocxDocumentLoader implements DocumentLoader {
 		private readonly aiServiceManager?: AIServiceManager
 	) { }
 
+	/**
+	 * Returns the type of document handled by this loader.
+	 * 返回此加载器处理的文档类型：'docx'。
+	 */
 	getDocumentType(): DocumentType {
 		return 'docx';
 	}
 
+	/**
+	 * Returns the list of supported file extensions.
+	 * 返回支持的文件扩展名列表：['docx', 'doc']。
+	 */
 	getSupportedExtensions(): string[] {
 		return ['docx', 'doc'];
 	}
 
+	/**
+	 * Reads a DOCX file by its path and converts it into a Document object.
+	 * According to the binary nature of DOCX, sourceFileInfo.content remains empty, 
+	 * while cacheFileInfo.content holds the extracted text.
+	 * 
+	 * 根据路径读取 DOCX 文件并将其转换为 Document 对象。
+	 * 由于 DOCX 是二进制格式，sourceFileInfo.content 会保持为空，而 cacheFileInfo.content 存储提取出的文本。
+	 */
 	async readByPath(filePath: string, genCacheContent?: boolean): Promise<Document | null> {
 		const file = this.app.vault.getAbstractFileByPath(filePath);
 		if (!file || !(file instanceof TFile)) return null;
@@ -36,6 +60,10 @@ export class DocxDocumentLoader implements DocumentLoader {
 		return await this.readDocxFile(file, genCacheContent);
 	}
 
+	/**
+	 * Splits the extracted DOCX text content into smaller chunks.
+	 * 将提取出的 DOCX 文本内容拆分为较小的分块。
+	 */
 	async chunkContent(
 		doc: Document,
 		settings: ChunkingSettings,
@@ -70,6 +98,10 @@ export class DocxDocumentLoader implements DocumentLoader {
 		return chunks;
 	}
 
+	/**
+	 * Scans the vault for DOCX files.
+	 * 扫描库中的 DOCX 文件。
+	 */
 	async *scanDocuments(params?: { limit?: number; batchSize?: number }): AsyncGenerator<Array<{ path: string; mtime: number; type: DocumentType }>> {
 		const limit = params?.limit ?? Infinity;
 		const batchSize = params?.batchSize ?? 100;
@@ -95,7 +127,8 @@ export class DocxDocumentLoader implements DocumentLoader {
 	}
 
 	/**
-	 * Get summary for a DOCX document
+	 * Get summary for a DOCX document.
+	 * 获取 DOCX 文档的摘要。
 	 */
 	async getSummary(
 		source: Document | string,
@@ -111,6 +144,10 @@ export class DocxDocumentLoader implements DocumentLoader {
 		return getDefaultDocumentSummary(source, this.aiServiceManager, provider, modelId);
 	}
 
+	/**
+	 * Internal method to perform binary reading and text extraction via mammoth.
+	 * 内部方法：执行二进制读取并使用 mammoth 提取文本。
+	 */
 	private async readDocxFile(file: TFile, genCacheContent?: boolean): Promise<Document | null> {
 		try {
 			// Read DOCX as binary

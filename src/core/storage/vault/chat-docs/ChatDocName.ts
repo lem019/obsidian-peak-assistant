@@ -1,7 +1,22 @@
+/**
+ * @file ChatDocName.ts
+ * @description 聊天文档命名工具类，负责生成带时间戳的文件和文件夹名称。
+ * 
+ * ## 核心职能
+ * 1. **规范命名**：生成统一格式的名称（如 `Project-MMDDHHMMSS-名称` 或 `Conv-MMDDHHMMSS-标题`）。
+ * 2. **冲突处理**：当同一个时间点生成多个同名文件时，自动通过添加序号来解决命名冲突。
+ * 3. **路径解析**：结合 Obsidian 的 `Vault` API，确保生成的文件夹或文件在磁盘上是唯一的。
+ * 
+ * ## 生活化类比
+ * 就像是一个档案室的“打码机”。每份新档案进来，它都会打印一个带有时间戳的唯一标签。如果两份档案标签重了，它就会在第二个标签后面加个 -1、-2，保证每个柜子里的档案都有自己唯一的名字。
+ */
+
 import { Vault, normalizePath, TFile, TFolder } from 'obsidian';
 
 /**
  * Utility for building chat document names with timestamp and conflict resolution.
+ * 
+ * 用于构建带有时间戳和冲突解决的聊天文档名称的工具。
  */
 export class ChatDocName {
 

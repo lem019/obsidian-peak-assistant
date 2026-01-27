@@ -1,3 +1,20 @@
+/**
+ * @file ollama.ts
+ * @description Ollama 本地服务提供商实现类。
+ * 
+ * 本文件实现了与本地运行的 Ollama 服务对接。
+ * 与云端服务（OpenAI/Claude）最大的不同点在于：
+ * 1. 【动态模型发现】它不是维护一个死板的模型列表，而是通过调用 Ollama 的 `/api/tags` 接口，
+ *    实时获取用户本地已经下载的模型，并自动生成图标和展示名称。
+ * 2. 【本地化适配】处理了 Base URL 的规范化问题（自动补全 /api 后缀）。
+ * 3. 【图标推断】由于本地模型名称千奇百怪，实现了一套基于正则匹配的图标推断逻辑（MODEL_ICON_MAP）。
+ * 
+ * 主要职责：
+ * 1. 动态获取本地已安装的模型列表。
+ * 2. 规范化 Ollama API 地址。
+ * 3. 将本地模型映射到对应的品牌图标（如匹配 llama3 到 Meta 图标）。
+ */
+
 import {
 	LLMRequest,
 	LLMResponse,
@@ -11,19 +28,23 @@ import { embedMany, type LanguageModel, type EmbeddingModel } from 'ai';
 import { blockChat, streamChat } from '../adapter/ai-sdk-adapter';
 import { trimTrailingSlash } from '@/core/utils/format-utils';
 
+/** 默认的本地服务超时时间 */
 const DEFAULT_OLLAMA_TIMEOUT_MS = 60000;
+/** Ollama 默认的本地监听地址 */
 export const OLLAMA_DEFAULT_BASE = 'http://localhost:11434';
 
 /**
- * Normalize Ollama baseUrl for ollama-ai-provider-v2
- * The provider expects baseURL to include /api (e.g., http://localhost:11434/api)
+ * 【关键工具】规范化 Ollama Base URL
+ * 
+ * 原因是 `ollama-ai-provider-v2` 库要求基准地址必须以 `/api` 结尾。
+ * 用户在界面输入的往往是 `http://localhost:11434`，本函数会自动将其转换为 
+ * `http://localhost:11434/api`，从而避免请求 404。
  */
 function normalizeOllamaBaseUrl(baseUrl: string): string {
-	// Remove trailing slashes and /v1 suffix if present
+	// 移除结尾可能的 v1 后缀或多余斜杠
 	let normalized = baseUrl.replace(/\/v1\/?$/, '').replace(/\/$/, '');
 
-	// Ensure /api is included in the baseURL
-	// ollama-ai-provider-v2 expects baseURL to be like http://localhost:11434/api
+	// 强制补充 /api
 	if (!normalized.endsWith('/api')) {
 		normalized = `${normalized}/api`;
 	}
@@ -33,11 +54,15 @@ function normalizeOllamaBaseUrl(baseUrl: string): string {
 
 
 export interface OllamaChatServiceOptions {
+	/** 本地 Ollama URL */
 	baseUrl?: string;
+	/** Ollama 本身不强制要求 API Key，但部分转发层可能需要 */
 	apiKey?: string;
+	/** 额外参数 */
 	extra?: Record<string, any>;
 }
 
+/** Ollama API 返回的模型对象定义 */
 interface OllamaModelResponse {
 	models: Array<{
 		name: string;
@@ -55,8 +80,8 @@ interface OllamaModelResponse {
 }
 
 /**
- * Model name patterns to icon mapping
- * Ordered by specificity (more specific patterns first)
+ * 模型名匹配模式 -> 图标标识映射表。
+ * 按照从具体到宽泛的顺序排列。
  */
 const MODEL_ICON_MAP: Array<{ patterns: string[]; icon: string }> = [
 	{ patterns: ['llama-3.1', 'llama3.1'], icon: 'llama-3.1' },
@@ -78,8 +103,7 @@ const MODEL_ICON_MAP: Array<{ patterns: string[]; icon: string }> = [
 ];
 
 /**
- * Map model family or name to icon identifier
- * Uses pattern matching to find the most specific match
+ * 根据模型名称或家族系列，推断出最合适的图标。
  */
 function getModelIcon(family?: string, name?: string): string {
 	if (!family && !name) {
@@ -88,14 +112,14 @@ function getModelIcon(family?: string, name?: string): string {
 
 	const searchText = `${name || ''} ${family || ''}`.toLowerCase().trim();
 
-	// Find the first matching pattern (ordered by specificity)
+	// 匹配优先级：MODEL_ICON_MAP 中的特定模式 > 家族名称兜底
 	for (const { patterns, icon } of MODEL_ICON_MAP) {
 		if (patterns.some(pattern => searchText.includes(pattern))) {
 			return icon;
 		}
 	}
 
-	// Fallback: check family directly if no pattern matched
+	// 如果没有特定模式匹配，尝试硬编码的家族匹配
 	if (family) {
 		const lowerFamily = family.toLowerCase();
 		if (lowerFamily === 'llama') return 'llama-3';
@@ -107,9 +131,7 @@ function getModelIcon(family?: string, name?: string): string {
 }
 
 /**
- * Fetch models from Ollama API
- * @param baseUrl - Ollama base URL
- * @returns Promise resolving to array of ModelMetaData or null if fetch failed
+ * 【底层网络方法】从 Ollama 接口拉取模型元数据。
  */
 async function fetchOllamaModels(
 	baseUrl?: string,
@@ -118,6 +140,7 @@ async function fetchOllamaModels(
 		const url = baseUrl ?? OLLAMA_DEFAULT_BASE;
 		const apiUrl = `${trimTrailingSlash(url)}/api/tags`;
 
+		// 显式设置超时，避免本地服务卡死时插件界面失去响应
 		const response = await fetch(apiUrl, {
 			method: 'GET',
 			headers: {
@@ -135,21 +158,16 @@ async function fetchOllamaModels(
 		if (!data.models || !Array.isArray(data.models)) {
 			throw new Error('Invalid response format: models array not found');
 		}
-		console.log('[OllamaChatService] data.models', data.models);
 
-		// Convert API response to ModelMetaData format
+		// 将原始 API 数据转换为插件通用的 ModelMetaData 格式
 		return data.models.map((model) => {
 			const family = model.details?.family || '';
 			const icon = getModelIcon(family, model.name);
-			// console.log('model', model.name, displayName, family, icon);
 
-			// Generate display name from model name - keep full name for version distinction
+			// 展示效果优化：尝试给模型名称加空格，如 llama3 -> Llama 3
 			let displayName = model.name;
-			// Format display name: capitalize first letter and add space before numbers
-			// e.g., "gemma3:4b" -> "Gemma 3:4b", "llama3.1:latest" -> "Llama 3.1:latest"
 			displayName = displayName.replace(/([a-z])([0-9])/gi, '$1 $2');
 			displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
-			// console.log('displayName', displayName);
 
 			return {
 				id: model.name,
@@ -163,7 +181,11 @@ async function fetchOllamaModels(
 	}
 }
 
+/**
+ * Ollama 对话服务核心类。
+ */
 export class OllamaChatService implements LLMProviderService {
+	// 使用专门的 ollama-ai-provider-v2 库进行底层序列化
 	private readonly client: OllamaProvider;
 
 	constructor(private readonly options: OllamaChatServiceOptions) {
@@ -178,26 +200,38 @@ export class OllamaChatService implements LLMProviderService {
 		return 'ollama';
 	}
 
+	/**
+	 * 创建可供 AI SDK 调用的模型实例。
+	 */
 	modelClient(model: string): LanguageModel {
 		return this.client(model) as unknown as LanguageModel;
 	}
 
+	/**
+	 * 执行非流式生成耗时任务。
+	 */
 	async blockChat(request: LLMRequest<any>): Promise<LLMResponse> {
 		return blockChat(this.modelClient(request.model), request);
 	}
 
+	/**
+	 * 执行流式文本生成。
+	 */
 	streamChat(request: LLMRequest<any>): AsyncGenerator<LLMStreamEvent> {
 		return streamChat(this.modelClient(request.model), request);
 	}
 
+	/**
+	 * 【核心差异化方法】动态获取可用模型。
+	 * 每次用户刷新设置，都会真实调用一次本地 API，确保能发现新拉取的模型。
+	 */
 	async getAvailableModels(): Promise<ModelMetaData[]> {
-		// Call fetchOllamaModels directly each time using await
 		const models = await fetchOllamaModels(
 			this.options.baseUrl,
 		);
-		// console.log('models fetched', models);
 
 		if (models) {
+
 			return models;
 		}
 

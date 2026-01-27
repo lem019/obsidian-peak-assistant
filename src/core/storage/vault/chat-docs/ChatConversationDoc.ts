@@ -1,3 +1,19 @@
+/**
+ * @file ChatConversationDoc.ts
+ * @description 聊天对话文档模型，核心处理对话文件与 Markdown 格式之间的相互转换。
+ * 
+ * ## 核心职能
+ * 1. **格式规范**：定义了聊天记录在 Markdown 中如何排版（标题、附件区、摘要区、消息区）。
+ * 2. **双向转化 (Serialize/Deserialize)**：将内存中的 `ChatMessage` 列表转化为 Markdown 文本（保存），或将 Markdown 文本解析回结构化数据（读取）。
+ * 3. **层级管理**：严格管理 1 级、2 级、3 级标题，确保在解析时不会因为用户的笔记内容而产生歧义。
+ * 
+ * ## 为什么采用这种设计？
+ * 与其使用 JSON 或 Database，将对话记录存为 Markdown 能让用户即使在不使用插件的情况下，也能在本地通过任何编辑器阅读其聊天历史。
+ * 
+ * ## 生活化类比
+ * 就像是一个档案员，同时也是一个翻译。他把 AI 和用户的对话（口语）翻译成整齐划一、带有目录（标题层级）的精美文档，存进箱子（Vault）里。
+ */
+
 import type { ChatMessage, ChatResourceRef } from '@/service/chat/types';
 import { hashMD5 } from '@/core/utils/hash-utils';
 
@@ -10,6 +26,11 @@ import { hashMD5 } from '@/core/utils/hash-utils';
  * This module handles the serialization and deserialization of chat conversations
  * to/from Markdown format. The design enforces a strict heading hierarchy to ensure
  * proper document structure and prevent content conflicts.
+ * 
+ * 对话 Markdown 文档模型
+ * -------------------
+ * 该模块处理聊天对话与 Markdown 格式之间的序列化和反序列化。
+ * 该设计强制执行严格的标题层级，以确保正确的文档结构并防止内容冲突。
  *
  * FILE STRUCTURE ORDER:
  * ---------------------

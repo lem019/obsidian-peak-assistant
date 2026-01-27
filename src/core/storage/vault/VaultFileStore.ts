@@ -1,3 +1,9 @@
+/**
+ * @file VaultFileStore.ts
+ * @description 基于 Obsidian 库的文件存储基类。
+ * 提供文本和二进制文件操作的统一接口，自动处理目录创建。
+ */
+
 import type { App } from 'obsidian';
 import { getPluginDir } from '@/core/utils/obsidian-utils';
 import { ensureFolderRecursive } from '@/core/utils/vault-utils';
@@ -5,6 +11,9 @@ import { ensureFolderRecursive } from '@/core/utils/vault-utils';
 /**
  * Base class for file-based storage in Obsidian vault.
  * Supports both text and binary file operations.
+ * 
+ * 基于 Obsidian 库的文件存储基类。
+ * 支持文本和二进制文件操作。
  */
 export abstract class VaultFileStore {
 	protected readonly fullPath: string;

@@ -1,8 +1,11 @@
 /**
- * Load all scripts from specified directory. Supported formats:
- * 1. md files. Code blocks. All code blocks will be executed
- * 2. js,ts files, entire file will be executed
- * 3. python files, entire file will be executed
+ * @file ScriptLoader.ts
+ * @description 脚本加载与执行器。
+ * 支持从指定目录加载多种格式的自动化脚本：
+ * 1. Markdown 文件：提取带有特定元数据的代码块执行。
+ * 2. JS/TS 文件：作为模块加载并执行导出函数。
+ * 3. Python 文件：通过子进程调用执行。
+ * 核心功能是建立“事件 -> 脚本回调”的映射关系，实现插件的插件化扩展。
  */
 
 import * as fs from 'fs';
@@ -11,7 +14,12 @@ import * as yaml from 'js-yaml';
 
 export type Callback<T = any> = (context: T) => void;
 
-// Load all script files from specified directory and register callback functions based on events
+/**
+ * Load all script files from specified directory and register callback functions based on events
+ * 
+ * 加载指定目录下的所有脚本并建立事件映射。
+ * 遍历文件夹，识别对应的文件扩展名，并调用相应的处理器。
+ */
 export function loadScriptsForEvent(directoryPath: string): Map<string, Callback[]> {
   // console.log('directoryPath: ', directoryPath);
 
@@ -40,6 +48,11 @@ export function loadScriptsForEvent(directoryPath: string): Map<string, Callback
   return handlerMap;
 }
 
+/**
+ * Recursively find all files in a directory
+ * 
+ * 递归获取目录下所有文件。
+ */
 function getAllFiles(directoryPath: string): string[] {
   let files: string[] = [];
   const items = fs.readdirSync(directoryPath);
@@ -60,7 +73,11 @@ function getAllFiles(directoryPath: string): string[] {
   return files;
 }
 
-// Merge new handlerMap into total handlerMap
+/**
+ * Merge new handlerMap into total handlerMap
+ * 
+ * 合并两个处理器映射表。
+ */
 function mergeHandlerMaps(targetMap: Map<string, Callback[]>, sourceMap: Map<string, Callback[]>): void {
   sourceMap.forEach((callbacks, eventName) => {
     const existingCallbacks = targetMap.get(eventName) || [];
@@ -68,12 +85,21 @@ function mergeHandlerMaps(targetMap: Map<string, Callback[]>, sourceMap: Map<str
   });
 }
 
-// Detect if event type is specified from first line of code block
+/**
+ * Detect if event type is specified from first line of code block
+ * 
+ * 从代码第一行提取事件名称标志（PeakAssistantEvent: event-name）。
+ */
 function extractEventMatchFromCodeFirstLine(lineStr:string) {
   return lineStr.match(/PeakAssistantEvent:\s*(\S+)/i);
 }
 
-// Register callback for qualified Markdown files
+/**
+ * Register callback for qualified Markdown files
+ * 
+ * 解析 Markdown 文件。
+ * 必须包含 YAML Frontmatter 且其中定义了 PeakAssistantEvent 字段。
+ */
 function registerMarkdownCallback(filePath: string): Map<string, Callback[]> {
   let handlerMap = new Map<string, Callback[]>();
   const fileContent = fs.readFileSync(filePath, 'utf-8');
@@ -91,7 +117,12 @@ function registerMarkdownCallback(filePath: string): Map<string, Callback[]> {
   return handlerMap;
 }
 
-// Register callback for qualified script files
+/**
+ * Register callback for qualified script files
+ * 
+ * 解析 JS/TS/PY 脚本文件。
+ * 文件首行必须包含事件定义注释。
+ */
 function registerScriptCallback(filePath: string): Map<string, Callback[]> {
   const handlerMap = new Map<string, Callback[]>();
   const fileContent = fs.readFileSync(filePath, 'utf-8');
@@ -112,7 +143,12 @@ function registerScriptCallback(filePath: string): Map<string, Callback[]> {
   return handlerMap;
 }
 
-// Execute code blocks in Markdown file
+/**
+ * Execute code blocks in Markdown file
+ * 
+ * 提取并准备执行 Markdown 中的代码块。
+ * 支持标准 Markdown (```js) 和 Templater 语法 (<%* ... %>)。
+ */
 function allMarkdownCodeBlocksExecutableScripts(fileContent: string): Map<string, Callback[]> {
   const handlerMap = new Map<string, Callback[]>();
   // Match code blocks in Markdown file
@@ -163,7 +199,11 @@ function allMarkdownCodeBlocksExecutableScripts(fileContent: string): Map<string
 }
 
 
-// Execute JavaScript, TypeScript files
+/**
+ * Execute JavaScript, TypeScript files
+ * 
+ * 执行 JS/TS 脚本文件。使用 CommonJS 的 require 机制加载。
+ */
 function executeScriptFile(filePath: string, context: any) {
   if (filePath.endsWith('.js') || filePath.endsWith('.ts')) {
     const script = require(filePath);
@@ -175,7 +215,12 @@ function executeScriptFile(filePath: string, context: any) {
   }
 }
 
-// Execute Python file
+/**
+ * Execute Python file
+ * 
+ * 执行 Python 脚本。
+ * 通过 shell 调用子进程实现，并将 context 作为 JSON 字符串通过命令行参数传递。
+ */
 function executePythonFile(filePath: string, context: any) {
   const { execSync } = require('child_process');
   try {
@@ -187,7 +232,11 @@ function executePythonFile(filePath: string, context: any) {
   }
 }
 
-// Execute JavaScript code in code blocks
+/**
+ * Execute JavaScript code in code blocks
+ * 
+ * 使用 new Function 动态执行提取出来的 JS 代码块。
+ */
 function executeJavaScriptCode(code: string, context: any) {
   try {
     const func = new Function('context', code);

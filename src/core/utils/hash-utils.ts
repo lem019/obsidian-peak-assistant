@@ -1,13 +1,20 @@
 /**
+ * @file hash-utils.ts
+ * @description 哈希工具函数，用于从字符串生成稳定的哈希值
+ * 
  * Hash utility functions for generating stable hashes from strings.
  * 
+ * 注意：这些是简单的哈希函数，不具备密码学安全性
  * Note: These are simple hash functions, not cryptographically secure.
- * They are suitable for:
- * - Deduplication
- * - Cache invalidation
- * - Stable ID generation
- * - Content fingerprinting
  * 
+ * 适用于：
+ * They are suitable for:
+ * - Deduplication（去重）
+ * - Cache invalidation（缓存失效）
+ * - Stable ID generation（稳定的ID生成）
+ * - Content fingerprinting（内容指纹）
+ * 
+ * 如需密码学用途，请使用 crypto.subtle.digest
  * For cryptographic purposes, use crypto.subtle.digest instead.
  */
 import { createHash } from 'crypto';
@@ -15,6 +22,9 @@ import { createHash } from 'crypto';
 /**
  * Simple hash function using DJB2-like algorithm.
  * Fast and produces stable hashes for the same input.
+ * 
+ * 使用类 DJB2 算法的简单哈希函数
+ * 快速且对相同输入产生稳定的哈希值
  * 
  * @param str String to hash
  * @returns Hash value as a number (32-bit integer)
@@ -31,6 +41,7 @@ function computeHash(str: string): number {
 
 /**
  * Generate a hash from a string and return it as a hex string.
+ * 从字符串生成哈希并返回十六进制字符串
  * 
  * @param str String to hash
  * @param minLength Minimum length of the output (padded with zeros). Default is 8.
@@ -43,6 +54,7 @@ export function hashString(str: string, minLength: number = 8): string {
 
 /**
  * Generate a hash from a string and return it as a base36 string.
+ * 从字符串生成哈希并返回 base36 字符串
  * 
  * @param str String to hash
  * @returns Base36 string representation of the hash

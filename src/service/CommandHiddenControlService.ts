@@ -1,7 +1,121 @@
 import { App, Menu, MenuItem, Plugin } from 'obsidian';
 
 /**
+ * ============================================================================
+ * 文件说明: CommandHiddenControlService.ts - UI 元素可见性控制服务
+ * ============================================================================
+ * 
+ * 【这个文件是干什么的】
+ * 这个文件负责控制 Obsidian 界面中各种 UI 元素的显示/隐藏，让用户可以自定义界面，
+ * 隐藏不需要的菜单项、命令、Ribbon 图标等，打造更简洁的工作环境。
+ * 
+ * 【起了什么作用】
+ * 1. **菜单项隐藏**：控制右键菜单（文件菜单、编辑器菜单）中的项目显示
+ * 2. **斜杠命令过滤**：隐藏不需要的斜杠命令（输入 / 时弹出的命令列表）
+ * 3. **命令面板过滤**：在命令面板（Ctrl+P）中隐藏特定命令
+ * 4. **Ribbon 图标控制**：隐藏左右侧边栏的图标按钮
+ * 5. **自动发现**：自动检测并记录所有可用的 UI 元素供用户选择
+ * 6. **实时应用**：设置更改后立即生效，无需重启
+ * 
+ * 【举例介绍】
+ * 场景 1：隐藏文件菜单中的某些项
+ * ```typescript
+ * // 用户右键点击文件，看到菜单：
+ * // - Open
+ * // - Delete  ✓ （此项始终可见，无法隐藏）
+ * // - Rename
+ * // - Move
+ * // - Duplicate
+ * 
+ * // 用户在设置中选择隐藏 "Duplicate"
+ * settings.hiddenMenuItems['file-menu']['Duplicate'] = true;
+ * 
+ * // 之后右键文件，菜单变成：
+ * // - Open
+ * // - Delete
+ * // - Rename
+ * // - Move
+ * // (Duplicate 不见了)
+ * ```
+ * 
+ * 场景 2：过滤斜杠命令
+ * ```typescript
+ * // 用户在编辑器中输入 /，弹出命令列表：
+ * // /todo 创建待办事项
+ * // /table 插入表格
+ * // /code 插入代码块
+ * // /image 插入图片
+ * 
+ * // 用户不常用图片功能，隐藏它
+ * settings.hiddenMenuItems['slash-commands']['/image'] = true;
+ * 
+ * // 之后输入 /，只显示：
+ * // /todo 创建待办事项
+ * // /table 插入表格
+ * // /code 插入代码块
+ * ```
+ * 
+ * 场景 3：隐藏 Ribbon 图标
+ * ```typescript
+ * // 左侧边栏有很多插件图标：
+ * // 📝 Daily Notes
+ * // 🔍 Search
+ * // 🎨 Theme
+ * // 📊 Charts
+ * // 🤖 AI Assistant
+ * 
+ * // 用户想隐藏 Charts 图标（不常用）
+ * settings.hiddenMenuItems['ribbon-icons']['Charts'] = true;
+ * 
+ * // 侧边栏变成：
+ * // 📝 Daily Notes
+ * // 🔍 Search
+ * // 🎨 Theme
+ * // 🤖 AI Assistant
+ * ```
+ * 
+ * 场景 4：自动发现机制
+ * ```typescript
+ * // 插件启动时，自动扫描所有 UI 元素
+ * discoveredByCategory = {
+ *   'file-menu': ['Open', 'Delete', 'Rename', 'Move', ...],
+ *   'slash-commands': ['/todo', '/table', '/code', ...],
+ *   'ribbon-icons': ['Daily Notes', 'Search', 'Theme', ...],
+ *   'command-palette': ['Open command palette', 'Open file', ...]
+ * };
+ * 
+ * // 用户在设置界面看到所有可用项，勾选要隐藏的
+ * ```
+ * 
+ * 【技术实现】
+ * 1. **拦截 API**：Hook Obsidian 的菜单创建 API（Menu.addItem、Plugin.registerEditorSuggest）
+ * 2. **DOM 监听**：使用 MutationObserver 监听菜单和命令面板的 DOM 变化
+ * 3. **防抖处理**：避免短时间内多次应用隐藏规则
+ * 4. **模糊匹配**：支持前缀匹配和包含匹配，处理不同插件的命名差异
+ * 5. **分类管理**：将 UI 元素按类型分类存储（file-menu、editor-menu、slash-commands 等）
+ * 6. **保护机制**："Delete" 等关键菜单项始终可见，防止用户误操作
+ * 
+ * 【核心方法】
+ * - `init()`: 初始化服务，注册所有拦截器和监听器
+ * - `updateSettings()`: 更新设置并重新应用可见性规则
+ * - `getDiscovered()`: 获取某个分类下的所有已发现项
+ * - `isHidden()`: 判断某个 UI 元素是否应该隐藏
+ * - `interceptMenuAddItem()`: 拦截菜单项添加
+ * - `interceptEditorSuggest()`: 拦截斜杠命令
+ * - `interceptCommandPalette()`: 拦截命令面板
+ * - `observeRibbonIcons()`: 监听 Ribbon 图标变化
+ * 
+ * 【设计考量】
+ * - 为什么 "Delete" 不能隐藏：防止用户误删文件后无法恢复
+ * - 为什么需要去重和清理：避免将文件路径、Wiki 链接误识别为命令
+ * - 为什么使用模糊匹配：不同插件对同一功能的命名可能略有差异
+ * - 为什么需要多次应用隐藏：某些菜单是异步加载的，需要等待 DOM 完成
+ * ============================================================================
+ */
+
+/**
  * Configuration for UI control settings
+ * UI 控制设置的配置接口
  */
 export interface CommandHiddenSettings {
 	/**
@@ -153,7 +267,7 @@ export class CommandHiddenControlService {
 		};
 	}
 
-	// =================================== interceptEditorSuggest ===================================
+	// =================================== int erceptEditorSuggest ===================================
 
 	/**
 	 * Intercept EditorSuggest (slash commands) to capture suggestions

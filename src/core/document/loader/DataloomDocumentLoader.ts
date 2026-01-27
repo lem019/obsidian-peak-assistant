@@ -11,8 +11,16 @@ import type { AIServiceManager } from '@/service/chat/service-manager';
 import { getDefaultDocumentSummary } from './helper/DocumentLoaderHelpers';
 
 /**
- * Dataloom document loader.
- * Recursively extracts all 'content' fields from JSON structure.
+ * Dataloom Document Loader
+ * 
+ * Specifically handles .loom or .dataloom files from the DataLoom plugin.
+ * It recursively extracts all 'content' fields from the JSON structure of the file,
+ * effectively flattening the table/database data into a searchable text format.
+ * 
+ * Dataloom 文档加载器
+ * 
+ * 专门处理来自 DataLoom 插件的 .loom 或 .dataloom 文件。
+ * 它递归地从文件的 JSON 结构中提取所有 'content' 字段，将表格/数据库数据展平为可搜索的文本格式。
  */
 export class DataloomDocumentLoader implements DocumentLoader {
 	constructor(
@@ -20,22 +28,35 @@ export class DataloomDocumentLoader implements DocumentLoader {
 		private readonly aiServiceManager?: AIServiceManager
 	) {}
 
+	/**
+	 * Returns the type of document handled by this loader.
+	 * 返回此加载器处理的文档类型：'dataloom'。
+	 */
 	getDocumentType(): DocumentType {
 		return 'dataloom';
 	}
 
+	/**
+	 * Returns the list of supported file extensions.
+	 * 返回支持的文件扩展名列表：['loom', 'dataloom']。
+	 */
 	getSupportedExtensions(): string[] {
 		return ['loom', 'dataloom'];
 	}
 
 	/**
 	 * Check if a file path matches any of the supported extensions.
+	 * 检查给定文件路径是否匹配支持的扩展名。
 	 */
 	private isSupportedPath(path: string): boolean {
 		const supportedExts = this.getSupportedExtensions();
 		return supportedExts.some(ext => path.endsWith('.' + ext));
 	}
 
+	/**
+	 * Reads a Dataloom file by its path and converts it into a Document object.
+	 * 根据路径读取 Dataloom 文件并将其转换为 Document 对象。
+	 */
 	async readByPath(filePath: string): Promise<Document | null> {
 		const file = this.app.vault.getAbstractFileByPath(filePath);
 		if (!file || !(file instanceof TFile)) return null;
@@ -43,6 +64,10 @@ export class DataloomDocumentLoader implements DocumentLoader {
 		return await this.readDataloomFile(file);
 	}
 
+	/**
+	 * Splits the Dataloom content into smaller chunks for indexing and LLM retrieval.
+	 * 将 Dataloom 内容拆分为较小的分块，以便进行索引和 LLM 检索。
+	 */
 	async chunkContent(
 		doc: Document,
 		settings: ChunkingSettings,
@@ -77,6 +102,10 @@ export class DataloomDocumentLoader implements DocumentLoader {
 		return chunks;
 	}
 
+	/**
+	 * Scans the vault for Dataloom files and yields them in batches.
+	 * 扫描库中的 Dataloom 文件，并按批次返回文件元数据。
+	 */
 	async *scanDocuments(params?: { limit?: number; batchSize?: number }): AsyncGenerator<Array<{ path: string; mtime: number; type: DocumentType }>> {
 		const limit = params?.limit ?? Infinity;
 		const batchSize = params?.batchSize ?? 100;
@@ -101,7 +130,8 @@ export class DataloomDocumentLoader implements DocumentLoader {
 	}
 
 	/**
-	 * Get summary for a Dataloom document
+	 * Get summary for a Dataloom document. Uses the AI service to generate a summary.
+	 * 获取 Dataloom 文档的摘要。使用 AI 服务生成摘要。
 	 */
 	async getSummary(
 		source: Document | string,
@@ -117,6 +147,10 @@ export class DataloomDocumentLoader implements DocumentLoader {
 		return getDefaultDocumentSummary(source, this.aiServiceManager, provider, modelId);
 	}
 
+	/**
+	 * Internal method to parse the Dataloom JSON structure.
+	 * 内部方法：解析 Dataloom 的 JSON 结构，并递归提取所有 'content' 字段。
+	 */
 	private async readDataloomFile(file: TFile): Promise<Document | null> {
 		try {
 			const data = JSON.parse(await this.app.vault.cachedRead(file));

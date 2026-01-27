@@ -2,13 +2,23 @@ import type { Kysely } from 'kysely';
 import type { Database as DbSchema } from '../ddl';
 
 /**
- * Repository for chat_project table.
+ * Chat Project Repository
+ * 
+ * Manages the `chat_project` table. In the assistant, conversations can be 
+ * organized into folders (projects). This repository handles the metadata 
+ * for these project containers, including their filesystem paths and archival status.
+ * 
+ * 对话项目存储库
+ * 
+ * 管理 `chat_project` 表。在助手中，对话可以被组织到文件夹（项目）中。
+ * 此存储库处理这些项目容器的元数据，包括它们在文件系统中的路径和归档状态。
  */
 export class ChatProjectRepo {
 	constructor(private readonly db: Kysely<DbSchema>) {}
 
 	/**
-	 * Check if project exists by project_id.
+	 * Checks if a project exists by its unique ID.
+	 * 检查项目是否按其唯一 ID 存在。
 	 */
 	async existsByProjectId(projectId: string): Promise<boolean> {
 		const row = await this.db
@@ -20,7 +30,8 @@ export class ChatProjectRepo {
 	}
 
 	/**
-	 * Insert new chat project.
+	 * Inserts a new project record.
+	 * 插入新的项目记录。
 	 */
 	async insert(project: {
 		project_id: string;
@@ -38,7 +49,8 @@ export class ChatProjectRepo {
 	}
 
 	/**
-	 * Update existing chat project by project_id.
+	 * Updates an existing project record by its ID.
+	 * 通过其 ID 更新现有的项目记录。
 	 */
 	async updateByProjectId(projectId: string, updates: Partial<Pick<DbSchema['chat_project'], 'name' | 'folder_rel_path' | 'updated_at_ts' | 'archived_rel_path' | 'meta_json'>>): Promise<void> {
 		await this.db
@@ -49,7 +61,8 @@ export class ChatProjectRepo {
 	}
 
 	/**
-	 * Upsert project metadata.
+	 * Upserts a project: updates if it exists, otherwise inserts.
+	 * 更新或插入项目：如果存在则更新，否则插入。
 	 */
 	async upsertProject(params: {
 		projectId: string;
@@ -63,7 +76,7 @@ export class ChatProjectRepo {
 		const exists = await this.existsByProjectId(params.projectId);
 
 		if (exists) {
-			// Update existing project
+			// Update existing project | 更新现有项目
 			await this.updateByProjectId(params.projectId, {
 				name: params.name,
 				folder_rel_path: params.folderRelPath,
@@ -72,7 +85,7 @@ export class ChatProjectRepo {
 				meta_json: params.metaJson ?? null,
 			});
 		} else {
-			// Insert new project
+			// Insert new project | 插入新项目
 			await this.insert({
 				project_id: params.projectId,
 				name: params.name,
@@ -86,7 +99,8 @@ export class ChatProjectRepo {
 	}
 
 	/**
-	 * Get project by ID.
+	 * Retrieves project details by ID.
+	 * 通过 ID 获取项目详情。
 	 */
 	async getById(projectId: string): Promise<DbSchema['chat_project'] | null> {
 		const row = await this.db
@@ -98,7 +112,8 @@ export class ChatProjectRepo {
 	}
 
 	/**
-	 * Get project by folder path.
+	 * Retrieves a project based on its relative folder path in the vault.
+	 * 获取在库中的相对文件夹路径对应的项目。
 	 */
 	async getByFolderPath(folderRelPath: string): Promise<DbSchema['chat_project'] | null> {
 		const row = await this.db
@@ -110,7 +125,8 @@ export class ChatProjectRepo {
 	}
 
 	/**
-	 * List all projects (excluding archived by default).
+	 * Lists all projects, optionally including archived ones.
+	 * 列出所有项目，可选地包含已归档的项目。
 	 */
 	async listProjects(includeArchived: boolean = false): Promise<DbSchema['chat_project'][]> {
 		let query = this.db.selectFrom('chat_project').selectAll();
@@ -121,7 +137,8 @@ export class ChatProjectRepo {
 	}
 
 	/**
-	 * Update folder path when project is moved/renamed.
+	 * Updates folder paths when a project directory is moved or renamed in Obsidian.
+	 * 当 Obsidian 中的项目目录被移动或重命名时，更新文件夹路径。
 	 */
 	async updatePathsOnMove(
 		projectId: string,

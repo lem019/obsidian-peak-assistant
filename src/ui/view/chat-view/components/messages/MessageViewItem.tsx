@@ -1,3 +1,26 @@
+/**
+ * 【这个文件是干什么的】
+ * MessageViewItem.tsx 是聊天视图中渲染单条消息的核心组件。
+ * 它负责将 ChatMessage 对象转换为可视化的消息气泡，支持用户和助手角色。
+ * 
+ * 【起了什么作用】
+ * 1. 消息渲染：区分用户/助手样式，支持 Markdown 内容渲染（打字机动画）。
+ * 2. 附件展示：解析并显示消息关联的资源（图片、PDF、本地文件、链接）。
+ * 3. 实时交互：显示推理过程（Reasoning）、工具调用状态及结果。
+ * 4. 动作管理：提供复制、重新生成、收藏（点赞）、查看 Token 和时间等功能。
+ * 5. 视图控制：处理长文本消息的折叠与展开。
+ * 
+ * 【举例介绍】
+ * - 助手回复时，如果包含搜索工具调用，组件会实时展示搜索状态。
+ * - 用户发送包含图片的双链，组件会显示缩略图并支持点击打开。
+ * 
+ * 【技术实现】
+ * - 组件化：拆分为多个子组件如 MessageAttachmentsList, ToolCallsDisplay 等。
+ * - 动画库：使用 @react-spring 实现弹性交互，AnimatedSparkles 显示流式状态。
+ * - 扩展性：通过 Message 抽象组件实现不同角色的气泡包装。
+ * - Obsidian 集成：利用 Menu API 提供右键上下文操作。
+ */
+
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { Menu, App } from 'obsidian';
 import { ChatMessage, ChatConversation } from '@/service/chat/types';
@@ -38,7 +61,8 @@ import { SafeModelIcon, SafeProviderIcon } from '@/ui/component/mine/SafeIconWra
 import { ProviderServiceFactory } from '@/core/providers/base/factory';
 
 /**
- * UI representation of a resource attachment
+ * 附件资源的 UI 表现层接口
+ * 扩展了 FileUIPart 以包含资源引用和文件类型
  */
 interface ResourceUIAttachment extends FileUIPart {
 	resource: ChatResourceRef;
@@ -46,12 +70,14 @@ interface ResourceUIAttachment extends FileUIPart {
 }
 
 /**
- * Component for rendering message attachments
+ * 组件：渲染消息中的附件列表
+ * 包括图片、PDF 和普通文件的展示逻辑
  */
 const MessageAttachmentsList: React.FC<{
 	message: ChatMessage;
 	app: App;
 }> = ({ message, app }) => {
+	// 解析消息中的资源
 	const fileAttachments = useMemo(() => {
 		if (!message.resources || message.resources.length === 0) {
 			return [];
@@ -82,19 +108,20 @@ const MessageAttachmentsList: React.FC<{
 	}, [message.resources, app]);
 
 	/**
-	 * Handle opening a resource based on its type
+	 * 处理附件打开逻辑
+	 * 区分外部链接和本地 Obsidian 文件
 	 */
 	const handleOpenResource = useCallback(async (attachment: ResourceUIAttachment) => {
 		const url = attachment.url;
 		if (!url) return;
 
-		// Handle URL resources - open in new tab
+		// 外部 URL 在浏览器打开
 		if (isUrl(url)) {
 			window.open(url, '_blank', 'noopener,noreferrer');
 			return;
 		}
 
-		// Handle file resources
+		// 本地文件通过 Obsidian 工具方法打开
 		await openFile(app, url);
 	}, [app]);
 
@@ -103,7 +130,10 @@ const MessageAttachmentsList: React.FC<{
 	}
 
 	/**
-	 * Render a single attachment with preview hover
+	 * 渲染单个附件，并集成悬停预览功能
+	 * @param attachment 附件对象
+	 * @param index 索引
+	 * @param isImage 是否为图片
 	 */
 	const renderAttachment = (attachment: ResourceUIAttachment, index: number, isImage: boolean) => {
 		const isPdf = attachment.fileType === 'pdf';
@@ -127,6 +157,7 @@ const MessageAttachmentsList: React.FC<{
 					onClick={handleClick}
 				>
 					{isPdf ? (
+						/* PDF 附件使用特定的行状布局 */
 						<div className="pktw-flex pktw-flex-row pktw-w-full pktw-shrink-0 pktw-items-center pktw-rounded-lg pktw-border-1 pktw-border-solid pktw-border-gray-200 dark:pktw-border-gray-600 pktw-bg-white pktw-px-1.5 pktw-py-1.5 pktw-gap-3 pktw-min-h-[48px]">
 							<div className="pktw-flex-shrink-0 pktw-w-8 pktw-h-8 pktw-bg-red-500 pktw-rounded pktw-flex pktw-items-center pktw-justify-center">
 								<FileText className="pktw-size-4 pktw-text-white" />
@@ -141,6 +172,7 @@ const MessageAttachmentsList: React.FC<{
 							</div>
 						</div>
 					) : (
+						/* 图片类附件使用卡片式预览 */
 						<MessageAttachment data={attachment} onClick={handleClick} />
 					)}
 				</div>
@@ -182,11 +214,12 @@ const MessageAttachmentsList: React.FC<{
 };
 
 /**
- * Component for rendering tool calls display
+ * 组件：渲染工具调用详情
+ * 显示 AI 使用的工具名称、输入参数和输出结果
  */
 const ToolCallsDisplay: React.FC<{
-	expanded: boolean;
-	toolCalls: ToolCallInfo[];
+	expanded: boolean; // 是否默认展开
+	toolCalls: ToolCallInfo[]; // 工具调用信息列表
 }> = ({ expanded, toolCalls }) => {
 	return (
 		<div className="pktw-w-full pktw-space-y-2">
@@ -195,18 +228,21 @@ const ToolCallsDisplay: React.FC<{
 					<TaskTrigger title={toolCall.toolName} />
 					<TaskContent>
 						<TaskItem>
+							{/* 显示输入参数 */}
 							{toolCall.input && (
 								<div className="pktw-text-xs pktw-text-muted-foreground pktw-mb-2">
 									<strong>Input:</strong>
 									<pre className="pktw-whitespace-pre-wrap pktw-mt-1">{JSON.stringify(toolCall.input, null, 2)}</pre>
 								</div>
 							)}
+							{/* 显示输出结果 */}
 							{toolCall.output && (
 								<div className="pktw-text-xs pktw-text-muted-foreground pktw-mb-2">
 									<strong>Output:</strong>
 									<pre className="pktw-whitespace-pre-wrap pktw-mt-1">{JSON.stringify(toolCall.output, null, 2)}</pre>
 								</div>
 							)}
+							{/* 正在运行状态 */}
 							{toolCall.isActive && (
 								<div className="pktw-flex pktw-items-center pktw-mt-2">
 									<Loader2 className="pktw-size-3 pktw-animate-spin pktw-text-muted-foreground pktw-mr-2" />
@@ -222,13 +258,14 @@ const ToolCallsDisplay: React.FC<{
 };
 
 /**
- * Component for rendering message action buttons
+ * 组件：渲染消息底部动作按钮区域
+ * 包括：收藏、复制、重新生成、模型信息等
  */
 const MessageActionsList: React.FC<{
 	message: ChatMessage;
-	isLastMessage: boolean;
-	isStreaming: boolean;
-	copied: boolean;
+	isLastMessage: boolean; // 是否是当前对话的最后一条消息（决定是否显示重发按钮）
+	isStreaming: boolean; // 是否正在生成中（生成中不显示动作按钮）
+	copied: boolean; // 复制成功状态
 	onToggleStar: (messageId: string, starred: boolean) => void;
 	onCopy: () => void;
 	onRegenerate: (messageId: string) => void;
@@ -239,6 +276,7 @@ const MessageActionsList: React.FC<{
 		return null;
 	}
 
+	// 仅在助手消息且悬停时显示时间
 	const showTime = message.role === 'assistant' && isHovered;
 
 	return (
@@ -248,6 +286,7 @@ const MessageActionsList: React.FC<{
 			className="pktw-flex pktw-items-center pktw-gap-1"
 		>
 			<MessageActions>
+				{/* 收藏按钮 */}
 				<MessageAction
 					tooltip={message.starred ? 'Unstar message' : 'Star message'}
 					label={message.starred ? 'Unstar message' : 'Star message'}
@@ -265,6 +304,7 @@ const MessageActionsList: React.FC<{
 					/>
 				</MessageAction>
 
+				{/* 复制按钮 */}
 				<MessageAction
 					tooltip={copied ? 'Copied!' : 'Copy message'}
 					label="Copy message"
@@ -280,6 +320,7 @@ const MessageActionsList: React.FC<{
 					)}
 				</MessageAction>
 
+				{/* 重新生成按钮：仅限助手的最后一条回复 */}
 				{message.role === 'assistant' && isLastMessage && (
 					<MessageAction
 						tooltip="Regenerate response"
@@ -293,6 +334,7 @@ const MessageActionsList: React.FC<{
 					</MessageAction>
 				)}
 
+				{/* 助手消息特有的模型和 Token 信息 */}
 				{message.role === 'assistant' && (
 					<>
 						<ModelIconButton message={message} />
@@ -301,13 +343,15 @@ const MessageActionsList: React.FC<{
 				)}
 
 			</MessageActions>
+			{/* 悬停显示具体创建时间 */}
 			{showTime && <TimeDisplay message={message} />}
 		</div>
 	);
 };
 
 /**
- * Component for displaying model/provider icon with tooltip
+ * 子组件：显示模型/提供商图标及其名称
+ * 支持点击复制模型标识符
  */
 const ModelIconButton: React.FC<{
 	message: ChatMessage;
@@ -317,12 +361,13 @@ const ModelIconButton: React.FC<{
 	const [modelIcon, setModelIcon] = useState<string | null>(null);
 	const [providerIcon, setProviderIcon] = useState<string | null>(null);
 
+	// 格式化型号信息，例如 "OpenAI/gpt-4o"
 	const modelInfo = useMemo(() => {
 		if (!message.model) return null;
 		return `${message.provider || ''}/${message.model}`.replace(/^\//, '');
 	}, [message.model, message.provider]);
 
-	// Get provider and model icons
+	// 异步加载提供商和模型图标
 	useEffect(() => {
 		if (!message.provider || !message.model || !manager) {
 			setModelIcon(null);
@@ -332,14 +377,14 @@ const ModelIconButton: React.FC<{
 
 		const loadIcons = async () => {
 			try {
-				// Get provider metadata
+				// 获取提供商元数据
 				const providerMetadata = ProviderServiceFactory.getInstance().getAllProviderMetadata();
 				const providerMeta = providerMetadata.find(m => m.id === message.provider);
 				if (providerMeta?.icon) {
 					setProviderIcon(providerMeta.icon);
 				}
 
-				// Get model metadata
+				// 获取具体模型元数据（包含图标）
 				const allModels = await manager.getAllAvailableModels();
 				const modelInfo = allModels.find(
 					m => m.id === message.model && m.provider === message.provider
@@ -357,6 +402,7 @@ const ModelIconButton: React.FC<{
 
 	if (!modelInfo) return null;
 
+	// 点击复制型号名称
 	const handleCopy = useCallback(async (e: React.MouseEvent) => {
 		e.stopPropagation();
 		try {
@@ -425,12 +471,13 @@ const ModelIconButton: React.FC<{
 };
 
 /**
- * Component for displaying token count
+ * 子组件：显示消息消耗的 Token 数量
  */
 const TokenCountButton: React.FC<{
 	message: ChatMessage;
 }> = ({ message }) => {
 	const [copied, setCopied] = useState(false);
+	// 计算总 Token 数逻辑
 	const tokenCount = useMemo(() => {
 		if (!message.tokenUsage) return null;
 		const usage = message.tokenUsage as any;
@@ -468,7 +515,7 @@ const TokenCountButton: React.FC<{
 };
 
 /**
- * Component for displaying time (shown on hover of MessageActions)
+ * 子组件：显示消息的具体创建时间 (悬停在 Action 区域时显示)
  */
 const TimeDisplay: React.FC<{
 	message: ChatMessage;
@@ -476,7 +523,7 @@ const TimeDisplay: React.FC<{
 	const [copied, setCopied] = useState(false);
 	const timeInfo = useMemo(() => {
 		if (!message.createdAtTimestamp) return null;
-		// Use user's local timezone instead of message's timezone
+		// 使用浏览器默认的本地时区
 		const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 		const date = formatTimestampLocale(message.createdAtTimestamp, userTimezone);
 		return date ? `${date} (${userTimezone})` : null;
@@ -532,7 +579,8 @@ export interface MessageItemProps {
 }
 
 /**
- * Component for rendering a single message
+ * 组件：渲染一条独立的消息
+ * 处理角色判断、右键菜单、重新生成、展开收起等核心逻辑
  */
 export const MessageItem: React.FC<MessageItemProps> = ({
 	message,
@@ -551,6 +599,10 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 	const activeConversation = useProjectStore((state) => state.activeConversation);
 	const activeProject = useProjectStore((state) => state.activeProject);
 
+	/**
+	 * 切换消息的收藏状态（Star）
+	 * 会同时更新本地状态和数据库存储
+	 */
 	const handleToggleStar = useCallback(async (messageId: string, starred: boolean) => {
 		console.debug('[MessageItem] Toggling star for message:', { messageId, starred });
 		if (!activeConversation) return;
@@ -559,7 +611,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 			conversationId: activeConversation.meta.id,
 			starred,
 		});
-		// Update conversation state locally
+		// 更新本地 store 状态以立即响应 UI
 		const updatedMessages = activeConversation.messages.map(msg =>
 			msg.id === messageId ? { ...msg, starred } : msg
 		);
@@ -570,23 +622,27 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 		useChatViewStore.getState().setConversation(updatedConv);
 		useProjectStore.getState().updateConversation(updatedConv);
 		useProjectStore.getState().setActiveConversation(updatedConv);
-		// Dispatch event to notify other components
+		// 发送事件，通知其他监听者（如侧边栏列表）同步状态
 		eventBus.dispatch(new ConversationUpdatedEvent({ conversation: updatedConv }));
 	}, [activeConversation, manager, eventBus]);
 
 	const { streamChat, updateConv } = useStreamChat();
 
+	/**
+	 * 重新生成助手回复的功能
+	 * 逻辑：寻找该回复之前的上一条用户消息，带着当时的对话上下文重新发起 AI 请求
+	 */
 	const handleRegenerate = useCallback(async (messageId: string) => {
 		if (!activeConversation) return;
-		if (!isLastMessage) return; // Only allow regenerating the last message
+		if (!isLastMessage) return; // 仅允许重新生成最后一条回复
 
-		// Find the assistant message
+		// 找到当前助手消息的索引
 		const messageIndex = activeConversation.messages.findIndex(m => m.id === messageId);
 		if (messageIndex === -1) return;
 		const assistantMessage = activeConversation.messages[messageIndex];
 		if (assistantMessage.role !== 'assistant') return;
 
-		// Find the user message before the assistant message
+		// 向上寻找最后一条用户消息
 		let userMessageIndex = -1;
 		for (let i = messageIndex - 1; i >= 0; i--) {
 			if (activeConversation.messages[i].role === 'user') {
@@ -598,29 +654,26 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 		const userMessage = activeConversation.messages[userMessageIndex];
 
 		try {
-			// Create a conversation context up to the user message (for LLM request)
+			// 构建请求上下文（截取到该用户消息为止）
 			const conversationContext: ChatConversation = {
 				...activeConversation,
 				messages: activeConversation.messages.slice(0, userMessageIndex + 1),
 			};
 
-			// Stream chat to generate new assistant message
+			// 发起流式请求
 			const streamResult = await streamChat({
 				conversation: conversationContext,
 				project: activeProject,
 				userContent: userMessage.content,
 			});
 
-			// Replace the assistant message with the new one
+			// 将新生成的回复存入数据库，并替换旧回复
 			if (streamResult.finalMessage) {
-				// Remove old message and add new one
-				// First, create a conversation with messages up to and including the user message
 				const conversationWithoutOldMessage: ChatConversation = {
 					...activeConversation,
 					messages: activeConversation.messages.slice(0, messageIndex),
 				};
 
-				// Add the new message using addMessage (this will update storage properly)
 				await manager.addMessage({
 					conversationId: conversationWithoutOldMessage.meta.id,
 					message: streamResult.finalMessage,
@@ -631,18 +684,14 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 			}
 		} catch (error) {
 			console.error('Failed to regenerate message:', error);
-			// Error handling is done inside streamChat hook
 		}
 	}, [activeConversation, activeProject, isLastMessage, streamChat, manager, updateConv]);
 
 	const [copied, setCopied] = useState(false);
 	const [isExpanded, setIsExpanded] = useState(false);
 
-	// Determine if this is a user message or assistant message
-	const isUser = message.role === 'user'; // 'user' = user message, 'assistant' = AI message
-
-	// Get display content: if streaming, use streamingContent; otherwise use message.content
-	// Streaming logic: when AI is generating, isStreaming=true and streamingContent contains partial content
+	// 环境判定
+	const isUser = message.role === 'user';
 	const displayContent = message.content;
 
 	const handleCopy = useCallback(async () => {
@@ -655,17 +704,20 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 		}
 	}, [message.content]);
 
+	/**
+	 * 构建消息右键菜单
+	 * 整合了复制选中文字、复制整条消息、收藏和重新生成功能
+	 */
 	const handleContextMenu = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 
 		const menu = new Menu();
 
-		// Check if there's selected text
+		// 检查是否有选中的文本，如果有则添加“复制选中内容”
 		const selection = window.getSelection();
 		const selectedText = selection?.toString().trim();
 
-		// Copy selected text if there's a selection
 		if (selectedText && selectedText.length > 0) {
 			menu.addItem((item) => {
 				item.setTitle('Copy selection');
@@ -681,14 +733,14 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 			menu.addSeparator();
 		}
 
-		// Copy message content
+		// 复制整条消息
 		menu.addItem((item) => {
 			item.setTitle('Copy message');
 			item.setIcon('copy');
 			item.onClick(handleCopy);
 		});
 
-		// Toggle star
+		// 收藏/取消收藏
 		menu.addItem((item) => {
 			item.setTitle(message.starred ? 'Unstar message' : 'Star message');
 			item.setIcon('lucide-star');
@@ -697,7 +749,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 			});
 		});
 
-		// Regenerate (only for last assistant message)
+		// 重新生成回复（仅限助手最后一条消息）
 		if (message.role === 'assistant' && isLastMessage) {
 			menu.addItem((item) => {
 				item.setTitle('Regenerate response');
@@ -708,18 +760,18 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 			});
 		}
 
-		// Show menu at cursor position
+		// 在鼠标位置显示菜单
 		menu.showAtPosition({ x: e.clientX, y: e.clientY });
 	}, [message, handleCopy, handleToggleStar, handleRegenerate, isLastMessage]);
 
-	// Character limit for collapsed user messages (only for user messages, not streaming)
+	// 长文本折叠判定逻辑（仅针对非流式传输中的用户消息）
 	const contentLength = String(displayContent || '').length;
 	const shouldShowExpand = isUser && !streamingState.isStreaming && contentLength > COLLAPSED_USER_MESSAGE_CHAR_LIMIT;
 	const displayText = shouldShowExpand && !isExpanded
 		? String(displayContent).slice(0, COLLAPSED_USER_MESSAGE_CHAR_LIMIT) + '...'
 		: String(displayContent);
 
-	// should show loader
+	// 是否显示流式加载动画：已开始流式传输但内容尚未到达，且也未在执行推理或工具调用时
 	const shouldShowLoader = streamingState.isStreaming && !displayContent && !streamingState.isReasoningActive && !streamingState.isToolSequenceActive;
 
 	return (
@@ -733,7 +785,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 			onContextMenu={handleContextMenu}
 		>
 			<Message from={message.role} className="pktw-max-w-[85%]">
-				{/* Render attachments if any - images should appear above text bubble */}
+				{/* 渲染消息关联的资源（图片、附件等） */}
 				{message.resources && message.resources.length > 0 && (
 					<div className="pktw-mb-2 pktw-w-full pktw-max-w-full pktw-min-w-0 pktw-overflow-hidden">
 						<MessageAttachmentsList message={message} app={app} />
@@ -745,7 +797,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 						isUser && "pktw-rounded-lg pktw-bg-secondary pktw-px-4 pktw-py-4 pktw-w-full"
 					)}
 				>
-					{/* Streaming started but no content yet - show loading spinner */}
+					{/* 等待流式内容时的 loading 动画 */}
 					{shouldShowLoader ? (
 						<div className="pktw-flex pktw-items-center pktw-justify-start pktw-py-2">
 							<div className="pktw-scale-50 pktw-origin-left">
@@ -754,7 +806,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 						</div>
 					) : null}
 
-					{/* Render reasoning content for assistant messages */}
+					{/* 渲染助手消息的推理过程（Thinking） */}
 					{!isUser && streamingState.reasoningContent && (
 						<Reasoning isStreaming={streamingState.isReasoningActive} className="pktw-w-full pktw-mb-0">
 							<ReasoningTrigger/>
@@ -764,7 +816,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 						</Reasoning>
 					)}
 
-					{/* Render tool calls for assistant messages */}
+					{/* 渲染助手消息的工具调用过程 */}
 					{!isUser && streamingState.currentToolCalls.length > 0 && (
 						<ToolCallsDisplay expanded={streamingState.isToolSequenceActive} toolCalls={streamingState.currentToolCalls.map(call => ({
 							toolName: call.toolName,
@@ -774,27 +826,26 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 						}))} />
 					)}
 
-					{/* Render message content */}
+					{/* 渲染消息正文内容 */}
 					{(!shouldShowLoader && displayContent) ? (
-						/* Has content (either streaming or complete) - render content */
 						<div className="pktw-relative">
 							{
 								isUser ? (
+									/* 用户消息显示为纯文本，支持文本选中 */
 									<div className="pktw-select-text">
 										{displayText}
 									</div>
 								) : (
+									/* 助手消息使用 Streamdown 渲染 Markdown，并支持打字机动画 */
 									<div
 										className="pktw-select-text"
 										data-streamdown-root
 									>
-										{/* Streamdown component handles animated rendering of streaming text */}
-										{/* isAnimating=true when streaming, false when complete */}
 										<Streamdown isAnimating={streamingState.isStreaming}>{displayText}</Streamdown>
 									</div>
 								)
 							}
-							{/* Show expand/collapse button for long user messages (not streaming, not AI) */}
+							{/* 展开/收起按钮 */}
 							{shouldShowExpand && (
 								<Button
 									type="button"
@@ -824,7 +875,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 					) : null}
 				</MessageContent>
 
-				{/* Render actions */}
+				{/* 底部动作工具栏 */}
 				<MessageActionsList
 					message={message}
 					isLastMessage={isLastMessage}

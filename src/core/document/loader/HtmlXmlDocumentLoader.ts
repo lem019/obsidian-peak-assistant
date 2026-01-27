@@ -10,10 +10,21 @@ import type { AIServiceManager } from '@/service/chat/service-manager';
 import { getDefaultDocumentSummary } from './helper/DocumentLoaderHelpers';
 
 /**
- * HTML/XML document loader.
- * Splits by meaningful tags while respecting size/overlap constraints.
+ * HTML/XML Document Loader
+ * 
+ * Handles reading and chunking of HTML and XML files within the vault. 
+ * It employs a regex-based strategy to identify "meaningful" tags (like headers, sections, and paragraphs) 
+ * to guide the chunking process, ensuring semantic boundaries are respected when possible.
+ * 
+ * HTML/XML 文档加载器
+ * 
+ * 处理库中 HTML 和 XML 文件的读取和分块。
+ * 它采用基于正则表达式的策略来识别“有意义”的标签（如标题、章节和段落），
+ * 以指导分块过程，确保在可能的情况下遵循语义边界。
  */
 export class HtmlXmlDocumentLoader implements DocumentLoader {
+	// Tags considered meaningful for structural splitting
+	// 被认为对结构化拆分有意义的标签
 	private static readonly MEANINGFUL_TAGS = ['div', 'section', 'article', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'td', 'th'];
 	private readonly tagPattern: RegExp;
 
@@ -21,19 +32,32 @@ export class HtmlXmlDocumentLoader implements DocumentLoader {
 		private readonly app: App,
 		private readonly aiServiceManager?: AIServiceManager
 	) {
-		// Initialize regex pattern once in constructor
+		// Initialize regex pattern once in constructor to detect opening and closing tags
+		// 在构造函数中初始化正则表达式，用于检测开头和结尾标签
 		const tagsPattern = HtmlXmlDocumentLoader.MEANINGFUL_TAGS.join('|');
 		this.tagPattern = new RegExp(`(<(?:${tagsPattern})[^>]*>)([\\s\\S]*?)(</(?:${tagsPattern})>)`, 'gi');
 	}
 
+	/**
+	 * Returns the type of document handled by this loader.
+	 * 返回此加载器处理的文档类型：'html'。
+	 */
 	getDocumentType(): DocumentType {
 		return 'html';
 	}
 
+	/**
+	 * Returns the list of supported file extensions.
+	 * 返回支持的文件扩展名列表。
+	 */
 	getSupportedExtensions(): string[] {
 		return ['html', 'htm', 'xml'];
 	}
 
+	/**
+	 * Reads an HTML/XML file by its path and converts it into a Document object.
+	 * 根据路径读取 HTML/XML 文件并将其转换为 Document 对象。
+	 */
 	async readByPath(path: string): Promise<Document | null> {
 		const file = this.app.vault.getAbstractFileByPath(path);
 		if (!file || !(file instanceof TFile)) return null;
@@ -41,6 +65,13 @@ export class HtmlXmlDocumentLoader implements DocumentLoader {
 		return await this.readHtmlXmlFile(file);
 	}
 
+	/**
+	 * Splits the HTML/XML content into smaller chunks.
+	 * Uses structural tags to segment the content before applying size constraints.
+	 * 
+	 * 将 HTML/XML 内容拆分为较小的分块。
+	 * 在应用大小限制之前，使用结构化标签对内容进行分割。
+	 */
 	async chunkContent(
 		doc: Document,
 		settings: ChunkingSettings,
@@ -50,6 +81,7 @@ export class HtmlXmlDocumentLoader implements DocumentLoader {
 		const overlap = settings.chunkOverlap;
 		const minSize = settings.minDocumentSizeForChunking;
 
+		// Skip chunking if document is smaller than the minimum threshold
 		if (content.length <= minSize) {
 			return [{
 				docId: doc.id,
@@ -85,7 +117,7 @@ export class HtmlXmlDocumentLoader implements DocumentLoader {
 			lastIndex = this.tagPattern.lastIndex;
 		}
 
-		// Add remaining content
+		// Add remaining content after the last matched tag
 		if (lastIndex < content.length) {
 			const remaining = content.substring(lastIndex).trim();
 			if (remaining) {
@@ -93,7 +125,7 @@ export class HtmlXmlDocumentLoader implements DocumentLoader {
 			}
 		}
 
-		// If no segments found, fall back to size-based splitting
+		// If no segments found, fall back to simple size-based splitting
 		if (segments.length === 0) {
 			let start = 0;
 			while (start < content.length) {
@@ -111,12 +143,12 @@ export class HtmlXmlDocumentLoader implements DocumentLoader {
 			return chunks;
 		}
 
-		// Group segments into chunks respecting size constraints
+		// Group segments into chunks respecting size constraints and adding overlap
 		let currentChunk = '';
 		for (const segment of segments) {
-			// If segment itself is too large, split it
+			// If a single segment itself is too large, split it further
 			if (segment.length > maxChunkSize) {
-				// Save current chunk if any
+				// Save current chunk first if it exists
 				if (currentChunk.length > 0) {
 					chunks.push({
 						docId: doc.id,
@@ -126,7 +158,7 @@ export class HtmlXmlDocumentLoader implements DocumentLoader {
 					});
 					currentChunk = '';
 				}
-				// Split large segment
+				// Split large segment based on maxChunkSize
 				let segStart = 0;
 				while (segStart < segment.length) {
 					const segEnd = Math.min(segStart + maxChunkSize, segment.length);
@@ -141,7 +173,7 @@ export class HtmlXmlDocumentLoader implements DocumentLoader {
 					if (segStart >= segment.length) break;
 				}
 			} else if (currentChunk.length + segment.length > maxChunkSize && currentChunk.length > 0) {
-				// Save current chunk and start new one with overlap
+				// Current chunk is full, save it and start new one with overlap from previous
 				chunks.push({
 					docId: doc.id,
 					content: currentChunk,
@@ -151,12 +183,12 @@ export class HtmlXmlDocumentLoader implements DocumentLoader {
 				const overlapText = currentChunk.slice(-overlap);
 				currentChunk = overlapText + '\n' + segment;
 			} else {
-				// Add to current chunk
+				// Accumulate segment into current chunk
 				currentChunk += (currentChunk ? '\n' : '') + segment;
 			}
 		}
 
-		// Add remaining chunk
+		// Save any remaining accumulated content as the final chunk
 		if (currentChunk.length > 0) {
 			chunks.push({
 				docId: doc.id,
@@ -169,6 +201,10 @@ export class HtmlXmlDocumentLoader implements DocumentLoader {
 		return chunks;
 	}
 
+	/**
+	 * Scans the vault for HTML/XML files.
+	 * 扫描库中的 HTML/XML 文件。
+	 */
 	async *scanDocuments(params?: { limit?: number; batchSize?: number }): AsyncGenerator<Array<{ path: string; mtime: number; type: DocumentType }>> {
 		const limit = params?.limit ?? Infinity;
 		const batchSize = params?.batchSize ?? 100;
@@ -194,7 +230,8 @@ export class HtmlXmlDocumentLoader implements DocumentLoader {
 	}
 
 	/**
-	 * Get summary for an HTML/XML document
+	 * Get summary for an HTML/XML document.
+	 * 获取 HTML/XML 文档的摘要。
 	 */
 	async getSummary(
 		source: Document | string,
@@ -210,6 +247,10 @@ export class HtmlXmlDocumentLoader implements DocumentLoader {
 		return getDefaultDocumentSummary(source, this.aiServiceManager, provider, modelId);
 	}
 
+	/**
+	 * Internal method to read file content and wrap it in a Document object.
+	 * 内部方法：读取文件内容并将其封装在 Document 对象中。
+	 */
 	private async readHtmlXmlFile(file: TFile): Promise<Document | null> {
 		try {
 			const content = await this.app.vault.cachedRead(file);

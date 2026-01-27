@@ -1,157 +1,170 @@
+/**
+ * @file types.ts
+ * @description LLM 提供商类型定义核心文件。
+ * 本文件定义了整个插件 AI 能力的基础数据结构。它起到了“协议”的作用，
+ * 确保不论是 OpenAI、Claude 还是本地的 Ollama，都能以统一的格式进行配置、调用和界面展示。
+ * 
+ * 主要职责：
+ * 1. 【配置层】定义了 ProviderConfig，用于存储 API Key、Base URL 等敏感信息和自定义选项。
+ * 2. 【能力层】定义了 ModelCapabilities，描述模型是否支持 视觉(Vision)、PDF、联网搜索等高级功能。
+ * 3. 【展示层】定义了 ModelMetaData，包含用于 UI 显示的图标 ID（兼容 lobe-chat 图标规范）、名称和价格信息。
+ * 
+ * 举例：
+ * 当你需要新增一个 AI 提供商时，你需要确保其返回的 metadata 符合这里的接口规范，
+ * 这样插件的设置面板和聊天视图才能正确渲染出该供应商的图标。
+ */
+
 import { LanguageModelUsage, FinishReason, CallWarning, LanguageModelRequestMetadata, LanguageModelResponseMetadata, ProviderMetadata, StepResult, GeneratedFile, ContentPart, ReasoningOutput, LanguageModel } from 'ai';
 
+/**
+ * 提供商配置接口
+ * 存储用户在设置面板输入的各项参数。
+ */
 export interface ProviderConfig {
+	/** 是否启用该服务 */
 	enabled?: boolean;
+	/** 访问凭证 */
 	apiKey?: string;
+	/** 代理地址或私有化部署地址 */
 	baseUrl?: string;
+	/** 模型级别的细颗粒度配置，如：哪些模型在列表中可见 */
 	modelConfigs?: Record<string, ModelConfig>;
 	/**
-	 * Extra provider-specific options as key-value pairs.
-	 * Each provider can read its own options from this field.
+	 * 特定提供商自定义选项。
+	 * 采用键值对形式存储不通用的额外参数。
 	 * @example
-	 * // For OpenRouter:
+	 * // 对于 OpenRouter:
 	 * { referer: 'https://example.com', title: 'My App' }
-	 * // For Claude:
+	 * // 对于 Claude:
 	 * { maxOutputTokens: 2048 }
 	 */
 	extra?: Record<string, any>;
 }
 
+/**
+ * 具体的模型开关配置
+ */
 export interface ModelConfig {
+	/** 模型 ID (例如 'gpt-4o') */
 	id: string;
+	/** 是否在 UI 中隐藏该模型 */
 	enabled?: boolean;
 }
 
+/**
+ * 模型用途类型
+ */
 export enum ModelType {
+	/** 文本大语言模型 */
 	LLM = 'llm',
+	/** 向量嵌入模型 */
 	EMBEDDING = 'embedding',
+	/** 图像生成模型 */
 	IMAGE = 'image',
+	/** 视频生成模型 */
 	VIDEO = 'video',
+	/** 语音相关模型 */
 	SOUND = 'sound',
 }
 
+/**
+ * 提供商元数据
+ * 用于设置页面和品牌展示。
+ */
 export interface ProviderMetaData {
+	/** 内部唯一标识 (如 'openai') */
 	id: string;
+	/** 显示名称 (如 'OpenAI') */
 	name: string;
+	/** 默认的 API 终结点 */
 	defaultBaseUrl: string;
 	/**
-	 * Icon identifier string for @lobehub/icons ProviderIcon component.
-	 * This string will be passed directly to ProviderIcon's `provider` prop.
-	 * Each provider should return the appropriate provider icon identifier (e.g., 'openai', 'anthropic', 'google', 'openrouter', 'ollama').
-	 * The icon mapping logic is centralized in each provider's getProviderMetadata() method.
-	 * 
-	 * @example
-	 * // In provider's getProviderMetadata():
-	 * return { id: 'openai', name: 'OpenAI', defaultBaseUrl: '...', icon: 'openai' };
-	 * 
-	 * // In UI component:
-	 * import { ProviderIcon } from '@lobehub/icons';
-	 * {metadata.icon && <ProviderIcon provider={metadata.icon} size={20} />}
+	 * 图标标识符，对接 @lobehub/icons。
+	 * 该字符串会被直接传递给 ProviderIcon 组件。
+	 * 每个 Provider 的 getProviderMetadata() 方法应决定该值。
 	 */
 	icon?: string;
 }
 
+/**
+ * 模型元数据
+ * 描述一个具体模型（如 GPT-4）的所有公开信息和技术指标。
+ */
 export interface ModelMetaData {
+	/** 原始 ID */
 	id: string;
+	/** 用户界面显示的友好名称 */
 	displayName: string;
+	/** 模型主类型 */
 	modelType?: ModelType;
 	/**
-	 * Icon identifier string for @lobehub/icons ModelIcon component.
-	 * This string will be passed directly to ModelIcon's `model` prop.
-	 * Each provider should return the appropriate model icon identifier (e.g., 'gpt-4.1', 'claude-3-5-sonnet').
-	 * The icon mapping logic is centralized in each provider's getAvailableModels() method.
-	 * 
-	 * @example
-	 * // In provider's getAvailableModels():
-	 * return [{ id: 'gpt-4.1', displayName: 'GPT-4.1', icon: 'gpt-4.1' }];
-	 * 
-	 * // In UI component:
-	 * import { ModelIcon } from '@lobehub/icons';
-	 * {modelInfo.icon && <ModelIcon model={modelInfo.icon} size={16} />}
+	 * 模型图标标识符，对接 @lobehub/icons 的 ModelIcon。
+	 * 允许 UI 为不同版本的模型显示特定图标（如 GPT-4 vs GPT-3.5）。
 	 */
 	icon?: string;
+	/** 发布时间戳，用于排序或显示“New”标记 */
 	releaseTimestamp?: number;
+	/** 输入价格（通常为每百万 token 的价格） */
 	costInput?: string;
+	/** 输出价格 */
 	costOutput?: string;
 	/**
-	 * Model capabilities (vision, pdfInput, tools, webSearch, etc.)
-	 * Should be defined in each provider's getAvailableModels() method.
+	 * 模型核心能力集
+	 * 用于 UI 根据能力显示或隐藏特定的功能按钮（如拍照上传、文件分析）。
 	 */
 	capabilities?: ModelCapabilities;
 }
 
 /**
- * Model info with provider information.
- * This is a view object (VO) that combines ProviderModelInfo with provider identifier.
- * Used for displaying models in UI components where provider context is needed.
+ * 带提供商上下文的模型信息。
+ * 这是一个视图对象 (VO)，将模型元数据与它所属的提供商 ID 结合。
+ * 广泛用于在切换模型下拉框时提供上下文。
  */
 export type ModelInfoForSwitch = ModelMetaData & {
+	/** 所属提供商的 ID (如 'ollama') */
 	provider: string;
 };
 
 /**
- * Model metadata with enabled status for settings.
- * Used in provider settings to display models with their enabled/disabled state.
+ * 带启用状态的模型设置信息。
+ * 用于设置面板，让用户逐个勾选哪些模型需要出现在聊天选项中。
  */
 export type ModelInfoForSettings = ModelMetaData & {
 	enabled: boolean;
 };
 
 /**
- * Model capabilities flags
+ * 模型能力标志位
+ * 这些布尔值决定了插件逻辑中“能否执行某项操作”。
  */
 export interface ModelCapabilities {
-	/**
-	 * Whether the model supports vision (image_url / multimodal image input)
-	 */
+	/** 是否支持视觉识别（多模态图片输入） */
 	vision: boolean;
-	/**
-	 * Whether the model supports PDF file input
-	 */
+	/** 是否支持作为文档直接上传 PDF（通过 API 直接解析） */
 	pdfInput: boolean;
-	/**
-	 * Whether the model supports function calling / tools
-	 */
+	/** 是否支持函数调用（Tools/Function Calling） */
 	tools: boolean;
-	/**
-	 * Whether the model supports web search
-	 */
+	/** 是否原生支持联网搜索 */
 	webSearch: boolean;
-	/**
-	 * Whether the model supports X (Twitter) search (xAI Grok)
-	 */
+	/** xAI Grok 专用：X (Twitter) 实时搜索 */
 	xSearch?: boolean;
-	/**
-	 * Whether the model supports news search (xAI Grok)
-	 */
+	/** xAI Grok 专用：新闻搜索 */
 	newsSearch?: boolean;
-	/**
-	 * Whether the model supports RSS feed search (xAI Grok)
-	 */
+	/** xAI Grok 专用：RSS 订阅搜索 */
 	rssSearch?: boolean;
-	/**
-	 * Whether the model supports code interpreter (OpenAI, xAI Grok, Claude, Gemini)
-	 */
+	/** 代码解释器支持（Sandbox 环境执行 Python 等） */
 	codeInterpreter?: boolean;
-	/**
-	 * Whether the model supports image generation (OpenAI)
-	 */
+	/** 直接通过聊天生成图片 */
 	imageGeneration?: boolean;
-	/**
-	 * Whether the model supports reasoning output (OpenAI reasoning models)
-	 */
+	/** 是否支持逻辑推理过程展示（如 OpenAI o1 系列） */
 	reasoning?: boolean;
-	/**
-	 * Maximum context window size in tokens (e.g., 200000, 400000, 1000000)
-	 * Used for displaying context size badge (200K, 400K, 1M)
-	 */
+	/** 最大上下文窗口 (Tokens)，用于显示 128K, 1M 等标签 */
 	maxCtx?: number;
 }
 
 /**
- * Resolve model capabilities from model metadata.
- * Capabilities should be defined in each provider's getAvailableModels() method.
- * Returns default (all false) if not provided.
+ * 解析并标准化模型能力。
+ * 该函数确保能力对象中始终包含完整的布尔值，即使后端返回的是部分缺失的。
  */
 export function resolveModelCapabilities(model?: { capabilities?: ModelCapabilities }): ModelCapabilities {
 	if (model?.capabilities) {

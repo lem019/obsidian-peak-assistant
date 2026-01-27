@@ -5,13 +5,28 @@ import { generateStableUuid } from '@/core/utils/id-utils';
 export type GraphEdge = DbSchema['graph_edges'];
 
 /**
- * CRUD repository for `graph_edges` table.
+ * Graph Edge Repository
+ * 
+ * Manages the `graph_edges` table, which represents relationships between 
+ * nodes in the knowledge graph. This repository handles the creation, 
+ * updating, and analysis of connections (e.g., links between documents, 
+ * tagging relationships). It also provides advanced graph analytics 
+ * such as degree counting and orphan node detection.
+ * 
+ * 图边存储库
+ * 
+ * 管理 `graph_edges` 表，该表表示知识图谱中节点之间的关系。此存储库处理连接的
+ * 创建、更新和分析（例如：文档之间的链接、贴标签关系）。它还提供高级图分析，
+ * 如度数统计和孤点检测。
  */
 export class GraphEdgeRepo {
 	constructor(private readonly db: Kysely<DbSchema>) {}
 
 	/**
-	 * Generate edge ID (now returns a UUID instead of composite string for better storage efficiency).
+	 * Generates a stable UUID for an edge based on its endpoints and relationship type.
+	 * This ensures that a specific relationship between two nodes is unique and predictable.
+	 * 
+	 * 根据边的端点和关系类型生成稳定的 UUID。这确保了两个节点之间的特定关系是唯一且可预测的。
 	 */
 	static generateEdgeId(fromNodeId: string, toNodeId: string, type: string): string {
 		// Import here to avoid circular dependencies
@@ -19,7 +34,8 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Check if graph edge exists by id.
+	 * Checks if a graph edge exists by its unique identifier.
+	 * 检查图边是否按其唯一标识符存在。
 	 */
 	async existsById(id: string): Promise<boolean> {
 		const row = await this.db
@@ -31,7 +47,8 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Insert new graph edge.
+	 * Inserts a new graph edge record into the database.
+	 * 向数据库插入新的图边记录。
 	 */
 	async insert(edge: {
 		id: string;
@@ -50,7 +67,8 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Update existing graph edge by id.
+	 * Updates properties of an existing graph edge.
+	 * 更新现有图边的属性。
 	 */
 	async updateById(id: string, updates: Partial<Pick<DbSchema['graph_edges'], 'weight' | 'attributes' | 'updated_at'>>): Promise<void> {
 		await this.db
@@ -61,7 +79,10 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Upsert a graph edge.
+	 * Upserts a graph edge between two nodes. 
+	 * Automatically generates an ID if one is not provided.
+	 * 
+	 * 插入或更新两个节点之间的图边。如果未提供 ID，则自动生成。
 	 */
 	async upsert(edge: {
 		id?: string;
@@ -79,14 +100,14 @@ export class GraphEdgeRepo {
 		const exists = await this.existsById(id);
 
 		if (exists) {
-			// Update existing edge
+			// Update existing edge | 更新现有边
 			await this.updateById(id, {
 				weight: edge.weight ?? 1.0,
 				attributes: edge.attributes,
 				updated_at: edge.updated_at ?? now,
 			});
 		} else {
-			// Insert new edge
+			// Insert new edge | 插入新边
 			await this.insert({
 				id,
 				from_node_id: edge.from_node_id,
@@ -101,7 +122,8 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Get edge by ID.
+	 * Retrieves full edge data by its ID.
+	 * 按 ID 获取完整的边数据。
 	 */
 	async getById(id: string): Promise<DbSchema['graph_edges'] | null> {
 		const row = await this.db.selectFrom('graph_edges').selectAll().where('id', '=', id).executeTakeFirst();
@@ -109,14 +131,16 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Get edges by from_node_id.
+	 * Retrieves all outgoing edges for a specific node.
+	 * 获取指定节点的所有传出边。
 	 */
 	async getByFromNode(fromNodeId: string): Promise<DbSchema['graph_edges'][]> {
 		return await this.db.selectFrom('graph_edges').selectAll().where('from_node_id', '=', fromNodeId).execute();
 	}
 
 	/**
-	 * Get edges by from_node_id (batch).
+	 * Batch retrieves outgoing edges for multiple nodes.
+	 * 批量获取多个节点的传出边。
 	 */
 	async getByFromNodes(fromNodeIds: string[]): Promise<DbSchema['graph_edges'][]> {
 		if (!fromNodeIds.length) return [];
@@ -124,8 +148,10 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Get edges by from_node_ids and types (batch).
-	 * todo we may need pagination for large result.
+	 * Batch retrieves relationships of specific types starting from multiple nodes.
+	 * Useful for following specific link types in a graph traversal.
+	 * 
+	 * 批量检索从多个节点开始的特定类型的关系。在图遍历中追踪特定链接类型时非常有用。
 	 */
 	async getByFromNodesAndTypes(fromNodeIds: string[], types: string[]): Promise<{ to_node_id: string; from_node_id: string; }[]> {
 		if (!fromNodeIds.length || !types.length) return [];
@@ -139,8 +165,12 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * group count node's in coming edges by type.
-	 * return a map: to_node_id -> count
+	 * Calculates the in-degree (number of incoming connections) for multiple nodes, 
+	 * optionally filtering by relationship type.
+	 * 
+	 * 计算多个节点的入度（传入连接的数量），可选按关系类型过滤。
+	 * 
+	 * @returns A Map of node_id -> count | 返回 node_id -> count 的映射
 	 */
 	async countInComingEdges(nodeIds: string[], type?: string): Promise<Map<string, number>> {
 		const query = this.db
@@ -166,9 +196,12 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * group count node's outgoing edges by type.
-	 * return a map: from_node_id -> count
-	 * If type is undefined, do not filter by type.
+	 * Calculates the out-degree (number of outgoing connections) for multiple nodes, 
+	 * optionally filtering by relationship type.
+	 * 
+	 * 计算多个节点的出度（传出连接的数量），可选按关系类型过滤。
+	 * 
+	 * @returns A Map of node_id -> count | 返回 node_id -> count 的映射
 	 */
 	async countOutgoingEdges(nodeIds: string[], type?: string): Promise<Map<string, number>> {
 		const query = this.db
@@ -194,8 +227,8 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * group count node's edges by type.
-	 * return a map: node_id -> count
+	 * Aggregates in-degree, out-degree, and total degree for a set of nodes.
+	 * 汇总一组节点的入度、出度和总度数。
 	 */
 	async countEdges(nodeIds: string[], type?: string): Promise<{ incoming: Map<string, number>; outgoing: Map<string, number> , total: Map<string, number> }> {
 		const incoming = await this.countInComingEdges(nodeIds, type);
@@ -208,9 +241,12 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Batch get neighbor node IDs for multiple nodes.
-	 *
-	 * Returns a map: node_id -> neighbor_id[]
+	 * Retrieves a map of outgoing connections for multiple source nodes.
+	 * Useful for building adjacency lists.
+	 * 
+	 * 检索多个源节点的传出连接图。对于构建邻接列表非常有用。
+	 * 
+	 * @returns node_id -> neighbor_id[]
 	 */
 	async getNeighborIdsMap(nodeIds: string[]): Promise<Map<string, string[]>> {
 		if (!nodeIds.length) return new Map();
@@ -230,14 +266,16 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Get edges by to_node_id.
+	 * Retrieves all incoming edges for a specific node.
+	 * 获取指定节点的所有传入边。
 	 */
 	async getByToNode(toNodeId: string): Promise<DbSchema['graph_edges'][]> {
 		return await this.db.selectFrom('graph_edges').selectAll().where('to_node_id', '=', toNodeId).execute();
 	}
 
 	/**
-	 * Get edges between two nodes.
+	 * Retrieves all edges directly connecting two specific nodes.
+	 * 获取直接连接两个特定节点的所有边。
 	 */
 	async getBetweenNodes(fromNodeId: string, toNodeId: string): Promise<DbSchema['graph_edges'][]> {
 		const rows = await this.db
@@ -250,30 +288,33 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Get edges by type.
+	 * Retrieves all edges of a specific type across the entire graph.
+	 * 获取整个图谱中特定类型的所有边。
 	 */
 	async getByType(type: string): Promise<DbSchema['graph_edges'][]> {
 		return await this.db.selectFrom('graph_edges').selectAll().where('type', '=', type).execute();
 	}
 
 	/**
-	 * Get edges by custom WHERE clause.
+	 * Executes a custom WHERE clause against the edges table.
+	 * Use caution as this bypasses the query builder's safety checks.
+	 * 
+	 * 针对边表执行自定义 WHERE 子句。请谨慎使用，因为这会绕过查询构建器的安全检查。
 	 */
 	async getByCustomWhere(whereClause: string): Promise<DbSchema['graph_edges'][]> {
 		if (!whereClause.trim()) return [];
-		// Create a simple compiled query object for raw SQL
 		const compiledQuery = {
 			sql: `SELECT * FROM graph_edges WHERE ${whereClause}`,
 			parameters: [],
-			query: {} // Add required query property
+			query: {} 
 		} as any;
 		const result = await this.db.executeQuery(compiledQuery);
 		return result.rows as DbSchema['graph_edges'][];
 	}
 
 	/**
-	 * Get nodes with zero out-degree (no outgoing edges).
-	 * @param limit Maximum number of nodes to return
+	 * Finds nodes that have no outgoing connections.
+	 * 查找没有传出连接的节点。
 	 */
 	async getNodesWithZeroOutDegree(limit?: number): Promise<string[]> {
 		let query = this.db
@@ -291,8 +332,8 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Get nodes with zero in-degree (no incoming edges).
-	 * @param limit Maximum number of nodes to return
+	 * Finds nodes that have no incoming connections.
+	 * 查找没有传入连接的节点。
 	 */
 	async getNodesWithZeroInDegree(limit?: number): Promise<string[]> {
 		let query = this.db
@@ -310,30 +351,25 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * // TODO: Implement using redundant degree fields in graph_nodes table
-	 * Get hard orphan nodes (zero in-degree AND zero out-degree).
-	 * @param limit Maximum number of orphans to return
+	 * Identifies "hard orphan" nodes: those with absolutely no incoming or outgoing connections.
+	 * 识别“硬孤立”节点：绝对没有传入或传出连接的节点。
 	 */
 	async getHardOrphanNodeIds(limit?: number): Promise<string[]> {
-		// Get nodes with zero out-degree and zero in-degree
 		const zeroOutNodes = await this.getNodesWithZeroOutDegree(limit);
 		const zeroInNodes = await this.getNodesWithZeroInDegree(limit);
 
-		// Find intersection: nodes that appear in both lists
 		const zeroOutSet = new Set(zeroOutNodes);
 		const hardOrphans = zeroInNodes.filter(nodeId => zeroOutSet.has(nodeId));
 
-		// Apply limit if specified
 		return limit ? hardOrphans.slice(0, limit) : hardOrphans;
 	}
 
 	/**
-	 * Get hard orphan nodes with full node information.
-	 * Uses separate queries to avoid JOIN operations.
-	 * @param limit Maximum number of orphans to return
+	 * Retrieves orphan nodes. Alias for `getHardOrphanNodeIds`.
+	 * 获取孤立节点。`getHardOrphanNodeIds` 的别名。
 	 */
 	async getHardOrphans(limit?: number): Promise<string[]> {
-		// Get orphan node IDs first
+		// Get orphan node IDs first | 先获取孤立节点 ID
 		const orphanIds = await this.getHardOrphanNodeIds(limit);
 
 		if (orphanIds.length === 0) {
@@ -344,40 +380,26 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Get nodes with low degree (1-2 total connections).
-	 * TODO: Implement after adding redundant in_degree/out_degree fields to graph_nodes table
-	 * This will allow efficient querying without expensive JOIN operations
-	 *
-	 * @param maxConnections Maximum total connections (default: 2)
-	 * @param limit Maximum number of nodes to return
+	 * Identifies nodes with very few connections (1-2 total).
+	 * Currently a stub waiting for redundant degree fields in the schema.
+	 * 
+	 * 识别连接非常少的节点（总共 1-2 条）。当前为等待架构中冗余度数字段的占位实现。
 	 */
 	async getNodesWithLowDegree(maxConnections: number = 2, limit?: number): Promise<Array<{ nodeId: string; totalConnections: number }>> {
-		// TODO: Implement using redundant degree fields in graph_nodes table
-		// SELECT id, in_degree + out_degree as total_connections
-		// FROM graph_nodes
-		// WHERE in_degree + out_degree BETWEEN 1 AND ?
-		// ORDER BY total_connections
-		// LIMIT ?
-
-		// Temporary empty implementation until redundant fields are added
+		// Temporary empty implementation until redundant fields are added | 在添加冗余字段之前的临时空实现
 		return [];
 	}
 
 	/**
-	 * Get top nodes by degree metrics (in-degree, out-degree).
-	 * Returns only node IDs grouped by degree type.
-	 *
-	 * @param limit Maximum number of nodes to return per degree type. If not provided, returns all nodes.
-	 * @param nodeIdFilter Optional list of node IDs to filter by. If provided, only consider degrees for these nodes.
-	 *
-	 * TODO: refactor suggestion - add some fields to the node table, as cache fields, such as total degree, out degree, in degree etc.
-	 *  by sacrificing write to improve query! it can be used in find key note, and it has great value -- or just put it in the statistics table
+	 * Ranks nodes by their degree metrics.
+	 * Returns the top N nodes by out-degree and in-degree respectively.
+	 * 
+	 * 按度数指标对节点进行排序。分别返回出度和入度前 N 名的节点。
 	 */
 	async getTopNodeIdsByDegree(limit?: number, nodeIdFilter?: string[]): Promise<{
 		topByOutDegree: Array<{ nodeId: string; outDegree: number }>;
 		topByInDegree: Array<{ nodeId: string; inDegree: number }>;
 	}> {
-		// Get out-degree stats (only node IDs and counts)
 		let outDegreeQuery = this.db
 			.selectFrom('graph_edges')
 			.select([
@@ -387,7 +409,6 @@ export class GraphEdgeRepo {
 			.groupBy('from_node_id')
 			.orderBy('outDegree', 'desc');
 
-		// Get in-degree stats (only node IDs and counts)
 		let inDegreeQuery = this.db
 			.selectFrom('graph_edges')
 			.select([
@@ -397,13 +418,11 @@ export class GraphEdgeRepo {
 			.groupBy('to_node_id')
 			.orderBy('inDegree', 'desc');
 
-		// Apply node ID filter if provided
 		if (nodeIdFilter && nodeIdFilter.length > 0) {
 			outDegreeQuery = outDegreeQuery.where('from_node_id', 'in', nodeIdFilter);
 			inDegreeQuery = inDegreeQuery.where('to_node_id', 'in', nodeIdFilter);
 		}
 
-		// Apply limit if provided
 		if (limit !== undefined) {
 			outDegreeQuery = outDegreeQuery.limit(limit);
 			inDegreeQuery = inDegreeQuery.limit(limit);
@@ -421,42 +440,48 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Delete edge by ID.
+	 * Deletes a specific edge by its ID.
+	 * 按 ID 删除特定边。
 	 */
 	async deleteById(id: string): Promise<void> {
 		await this.db.deleteFrom('graph_edges').where('id', '=', id).execute();
 	}
 
 	/**
-	 * Delete edges by from_node_id.
+	 * Deletes all outgoing edges from a specific node.
+	 * 删除来自特定节点的所有传出边。
 	 */
 	async deleteByFromNode(fromNodeId: string): Promise<void> {
 		await this.db.deleteFrom('graph_edges').where('from_node_id', '=', fromNodeId).execute();
 	}
 
 	/**
-	 * Delete edges by to_node_id.
+	 * Deletes all incoming edges to a specific node.
+	 * 删除指向特定节点的所有传入边。
 	 */
 	async deleteByToNode(toNodeId: string): Promise<void> {
 		await this.db.deleteFrom('graph_edges').where('to_node_id', '=', toNodeId).execute();
 	}
 
 	/**
-	 * Delete edges between two nodes.
+	 * Deletes all edges directly connecting two specific nodes.
+	 * 删除直接连接两个特定节点的所有边。
 	 */
 	async deleteBetweenNodes(fromNodeId: string, toNodeId: string): Promise<void> {
 		await this.db.deleteFrom('graph_edges').where('from_node_id', '=', fromNodeId).where('to_node_id', '=', toNodeId).execute();
 	}
 
 	/**
-	 * Delete edges by type.
+	 * Deletes all edges of a specific type.
+	 * 删除特定类型的所有边。
 	 */
 	async deleteByType(type: string): Promise<void> {
 		await this.db.deleteFrom('graph_edges').where('type', '=', type).execute();
 	}
 
 	/**
-	 * Delete edges where from_node_id or to_node_id matches any of the given node IDs.
+	 * Deletes all edges (incoming or outgoing) associated with any of the given node IDs.
+	 * 删除与任何给定节点 ID 关联的所有边（传入或传出）。
 	 */
 	async deleteByNodeIds(nodeIds: string[]): Promise<void> {
 		if (!nodeIds.length) return;
@@ -467,22 +492,22 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Get limited edges by node ID, grouped by type.
-	 * Optionally exclude a set of types.
-	 * Returns edges where each type (for the remaining types, or all if not provided) is limited to the specified limit per type.
-	 * Uses SQLite window functions to rank edges within each type group.
-	 * @param nodeId - The node ID to fetch edges for
-	 * // todo we should limit by statistics weight. some doc are more important than others. not just simple order
-	 * //  so we should add some data to the graph edge, node table. like weight
-	 * @param limitPerType - Maximum number of edges per type to return
-	 * @param typesExclude - Types to exclude (edges of these types will not be included)
+	 * Retrieves a sample of edges for a node across all its relationship types.
+	 * Uses SQLite window functions to ensure diversity by limiting results 
+	 * to a maximum number of edges PER type.
+	 * 
+	 * 检索节点跨其所有关系类型的边样本。使用 SQLite 窗口函数通过限制
+	 * 每种类型的最大边数来确保多样性。
+	 * 
+	 * @param nodeId - The context node | 上下文节点
+	 * @param limitPerType - Max edges per group | 每个组的最大边数
+	 * @param typesExclude - Optional list of types to ignore | 可选的忽略类型列表
 	 */
 	async getAllEdgesForNode(
 		nodeId: string,
 		limitPerType: number,
 		typesExclude?: string[]
 	): Promise<GraphEdge[]> {
-		// Use window function to rank edges by type and updated_at, then filter
 		const query = this.db
 			.with('ranked_edges', (qb) => {
 				let baseQb = qb
@@ -523,8 +548,8 @@ export class GraphEdgeRepo {
 
 
 	/**
-	 * Get top N most used tags by counting tagged relationships.
-	 * Returns array of { tagId: string, count: number } sorted by count descending.
+	 * Identifies the most frequently used tags by counting "tagged" relationships.
+	 * 通过统计“已标记”关系识别最常用的标签。
 	 */
 	async getTopTaggedNodes(limit: number = 50): Promise<Array<{ tagId: string; count: number }>> {
 		return await this.db
@@ -541,7 +566,8 @@ export class GraphEdgeRepo {
 	}
 
 	/**
-	 * Delete all graph edges.
+	 * Clears the entire edges table.
+	 * 清空整个边表。
 	 */
 	async deleteAll(): Promise<void> {
 		await this.db.deleteFrom('graph_edges').execute();

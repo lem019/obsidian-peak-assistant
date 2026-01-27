@@ -1,6 +1,15 @@
 /**
+ * @file date-utils.ts
+ * @description 日期时间工具函数，提供时间格式化、相对时间显示等功能
+ */
+
+/**
  * Format timestamp as relative time (e.g., "2 days ago", "3 weeks ago")
  * Uses timezone-aware date comparison: if timestamp is before today's 0:00, use day/week/month, otherwise use hours/minutes
+ * 
+ * 将时间戳格式化为相对时间字符串（例如："2 天前"、"3 周前"）
+ * 使用时区感知的日期比较：如果时间戳在今天 0:00 之前，使用天/周/月，否则使用小时/分钟
+ * 
  * eg:
  *  "just now",
  *  "1 minute ago",

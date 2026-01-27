@@ -5,14 +5,20 @@ import { extractTags, extractWikiLinks } from '@/core/utils/markdown-utils';
 import type { GraphPreview } from './types';
 
 /**
- * Graph store backed by SQLite repositories.
+ * @file GraphStore.ts
+ * @description 图数据存储中心，负责管理笔记之间的关系网。
  * 
- * This is the primary interface for all graph operations:
- * - Persists all node and edge data in SQLite
- * - Provides efficient SQL-based queries for basic graph operations
- * - Handles all document indexing and relationship extraction
+ * ## 核心职能
+ * 本文件是所有图操作的主要接口。它使用 SQLite 作为底层存储，负责：
+ * 1. **节点与边的持久化**：将笔记（节点）及其关联（边）保存到数据库。
+ * 2. **关系提取**：从 Markdown 内容中提取标签、双链、分类，并将其转化为图结构。
+ * 3. **高效查询**：利用 SQL 的强大查询能力进行多跳搜索、邻居查找等，而无需将整个图加载到内存。
  * 
- * Design principle: All data persists in SQLite, keeping the plugin lightweight.
+ * ## 在项目中的角色
+ * 它是“大脑的连接通路”。当 AI 需要通过“关联思维”来寻找相关知识时，它会向 GraphStore 询问：“和这个笔记相关的有哪些标签？哪些笔记引用了它？”
+ * 
+ * ## 生活化类比
+ * 就像一个城市的交通管理系统。它记录了所有的地标（节点）和道路（边）。当你询问“从天安门出发两步能到的地方有哪些”时，它能迅速给出答案。
  */
 export class GraphStore {
 	constructor(
@@ -20,30 +26,31 @@ export class GraphStore {
 		private readonly edgeRepo: GraphEdgeRepo,
 	) { }
 
-	// ===== Node Operations =====
+	// ===== 节点操作 (Node Operations) =====
 
 	/**
-	 * Upsert a node.
+	 * 更新或插入节点。
+	 * 如果节点已存在则更新，不存在则创建。
 	 */
 	async upsertNode(node: {
-		id: string;
-		type: GraphNodeType;
-		label: string;
-		attributes: Record<string, unknown>;
+		id: string; // 节点唯一标识，通常是文件路径或特定 ID
+		type: GraphNodeType; // 节点类型：document, tag, category, link 等
+		label: string; // 显示名称
+		attributes: Record<string, unknown>; // 额外属性（如路径、状态等）
 	}): Promise<void> {
 		const now = Date.now();
 		await this.nodeRepo.upsert({
 			id: node.id,
 			type: node.type,
 			label: node.label,
-			attributes: JSON.stringify(node.attributes),
+			attributes: JSON.stringify(node.attributes), // 属性序列化存储
 			created_at: now,
 			updated_at: now,
 		});
 	}
 
 	/**
-	 * Get node by ID.
+	 * 根据 ID 获取节点。
 	 */
 	async getNode(id: string): Promise<GraphNodePO | null> {
 		const node = await this.nodeRepo.getById(id);
@@ -59,16 +66,19 @@ export class GraphStore {
 	}
 
 	/**
-	 * Delete node and all its incident edges.
+	 * 删除节点及其所有关联的边。
+	 * 确保数据的引用完整性。
 	 */
 	async deleteNode(id: string): Promise<void> {
+		// 先删除该节点发出的和接收的所有边
 		await this.edgeRepo.deleteByFromNode(id);
 		await this.edgeRepo.deleteByToNode(id);
+		// 再删除节点本身
 		await this.nodeRepo.deleteById(id);
 	}
 
 	/**
-	 * Get all nodes of a specific type.
+	 * 获取指定类型的所有节点。
 	 */
 	async getNodesByType(type: GraphNodeType): Promise<GraphNodePO[]> {
 		const nodes = await this.nodeRepo.getByType(type);
@@ -82,17 +92,18 @@ export class GraphStore {
 		}));
 	}
 
-	// ===== Edge Operations =====
+	// ===== 边操作 (Edge Operations) =====
 
 	/**
-	 * Upsert an edge. If edge exists, weight is incremented.
+	 * 更新或插入边。如果边已存在，其权重（weight）会增加。
+	 * 这常用于表示“关联强度”。
 	 */
 	async upsertEdge(edge: {
-		fromNodeId: string;
-		toNodeId: string;
-		type: GraphEdgeType;
-		weight?: number;
-		attributes?: Record<string, unknown>;
+		fromNodeId: string; // 起点 ID
+		toNodeId: string;   // 终点 ID
+		type: GraphEdgeType; // 边类型：references, tagged, categorized 等
+		weight?: number;     // 权重（默认为 1.0）
+		attributes?: Record<string, unknown>; // 边上的额外信息
 	}): Promise<void> {
 		const now = Date.now();
 		const edgeId = GraphEdgeRepo.generateEdgeId(edge.fromNodeId, edge.toNodeId, edge.type);
@@ -100,7 +111,7 @@ export class GraphStore {
 
 		let weight = edge.weight ?? 1.0;
 		if (existingEdge) {
-			// Increment weight if edge already exists
+			// 如果边已存在，累加权重以体现更强的关联性
 			weight = existingEdge.weight + (edge.weight ?? 1.0);
 		}
 
@@ -117,7 +128,7 @@ export class GraphStore {
 	}
 
 	/**
-	 * Get outgoing edges from a node.
+	 * 获取从特定节点出发的所有边。
 	 */
 	async getOutgoingEdges(nodeId: string): Promise<GraphEdgePO[]> {
 		const edges = await this.edgeRepo.getByFromNode(nodeId);
@@ -134,7 +145,7 @@ export class GraphStore {
 	}
 
 	/**
-	 * Get incoming edges to a node.
+	 * 获取指向特定节点的所有边。
 	 */
 	async getIncomingEdges(nodeId: string): Promise<GraphEdgePO[]> {
 		const edges = await this.edgeRepo.getByToNode(nodeId);
@@ -151,17 +162,17 @@ export class GraphStore {
 	}
 
 	/**
-	 * Delete edge between two nodes.
+	 * 删除两个节点之间特定类型的边。
 	 */
 	async deleteEdge(fromNodeId: string, toNodeId: string, type: GraphEdgeType): Promise<void> {
 		const edgeId = GraphEdgeRepo.generateEdgeId(fromNodeId, toNodeId, type);
 		await this.edgeRepo.deleteById(edgeId);
 	}
 
-	// ===== Basic Graph Queries (SQL-based) =====
+	// ===== 基础图查询（基于 SQL 优化） =====
 
 	/**
-	 * Get neighbor node IDs (outgoing).
+	 * 获取直接相邻的邻居节点 ID 列表（仅限出边）。
 	 */
 	async getNeighborIds(nodeId: string): Promise<string[]> {
 		const edges = await this.getOutgoingEdges(nodeId);
@@ -169,8 +180,8 @@ export class GraphStore {
 	}
 
 	/**
-	 * Get related nodes within N hops (BFS traversal using SQL queries).
-	 * This uses efficient SQL queries without loading the entire graph into memory.
+	 * 获取与起始节点在 N 跳（Hop）以内的所有相关节点 ID。
+	 * 采用广度优先搜索 (BFS)，每一步都通过高效的批处理 SQL 查询。
 	 */
 	async getRelatedNodeIds(startNodeId: string, maxHops: number = 2): Promise<Set<string>> {
 		const visited = new Set<string>([startNodeId]);
@@ -178,7 +189,7 @@ export class GraphStore {
 
 		for (let hop = 0; hop < maxHops; hop++) {
 			const next = new Set<string>();
-			// Batch-load outgoing neighbors for the whole frontier in one query to avoid N+1.
+			// 一次性加载当前层级（frontier）所有节点的邻居，避免 N+1 查询问题
 			const neighborMap = await this.edgeRepo.getNeighborIdsMap(Array.from(frontier));
 			for (const [, neighbors] of neighborMap) {
 				for (const neighborId of neighbors) {
@@ -192,14 +203,14 @@ export class GraphStore {
 			if (!frontier.size) break;
 		}
 
-		visited.delete(startNodeId); // Remove start node
+		visited.delete(startNodeId); // 结果不包含起始节点本身
 		return visited;
 	}
 
-	// ===== Document Operations =====
+	// ===== 文档专用操作 (Document Operations) =====
 
 	/**
-	 * Upsert a document node into the graph.
+	 * 将文档节点插入图。
 	 */
 	async upsertDocument(params: { id: string; path: string; docType?: string }): Promise<void> {
 		await this.upsertNode({
@@ -214,28 +225,28 @@ export class GraphStore {
 	}
 
 	/**
-	 * Upsert a markdown document with its relationships (tags, links, categories).
-	 * This method extracts relationships from content and persists them in SQLite.
+	 * 处理 Markdown 文档并提取其中的关系（标签、双链、分类）。
+	 * 所有的关系都会被实例化为节点和边持久化到数据库。
 	 */
 	async upsertMarkdownDocument(params: {
-		id: string;
+		id: string; // 通常是文档路径
 		path: string;
-		content: string;
+		content: string; // Markdown 文本内容
 		docType?: string;
 		categories?: string[];
 	}): Promise<void> {
-		// Upsert document node
+		// 首先确保文档节点本身存在
 		await this.upsertDocument({
 			id: params.id,
 			path: params.path,
 			docType: params.docType,
 		});
 
-		// Extract and upsert wiki links
-		// TODO: The other node should be document instead of link - documents are only markdown
+		// 提取并更新双链 (Wiki Links)
 		const links = extractWikiLinks(params.content);
 		for (const link of links) {
 			const linkId = `link:${link}`;
+			// 为被引用的目标创建一个 'link' 类型的节点（如果它还不是一个真正的文档）
 			await this.upsertNode({
 				id: linkId,
 				type: 'link',
@@ -245,6 +256,7 @@ export class GraphStore {
 					resolved: false,
 				},
 			});
+			// 创建从当前文档到该链接的 'references' 连线
 			await this.upsertEdge({
 				fromNodeId: params.id,
 				toNodeId: linkId,
@@ -253,12 +265,11 @@ export class GraphStore {
 			});
 		}
 
-		// TODO: Missing a resource type node, such as image, pdf, etc. These resource nodes must have file type identifier, see DocumentType
-
-		// Extract and upsert tags
+		// 提取并更新标签 (Tags)
 		const tags = extractTags(params.content);
 		for (const tag of tags) {
 			const tagId = `tag:${tag}`;
+			// 创建标签节点
 			await this.upsertNode({
 				id: tagId,
 				type: 'tag',
@@ -267,6 +278,7 @@ export class GraphStore {
 					tagName: tag,
 				},
 			});
+			// 创建从当前文档到标签的 'tagged' 连线
 			await this.upsertEdge({
 				fromNodeId: params.id,
 				toNodeId: tagId,
@@ -275,7 +287,7 @@ export class GraphStore {
 			});
 		}
 
-		// Upsert categories if provided
+		// 如果提供了分类信息，也进行关联
 		if (params.categories) {
 			for (const category of params.categories) {
 				const categoryId = `category:${category}`;
@@ -298,41 +310,37 @@ export class GraphStore {
 	}
 
 	/**
-	 * Remove a document node and all its incident edges from the graph.
-	 * This keeps tag/link/category nodes to avoid expensive garbage collection.
+	 * 从图中移除文档节点。
+	 * 注意：为了效率，相关的标签/分类节点会被保留，即使它们已经变为空节点（没有连线）。
 	 */
 	async removeDocument(id: string): Promise<void> {
 		await this.deleteNode(id);
 	}
 
 	/**
-	 * Get related file paths within N hops (backward compatibility wrapper).
-	 * Returns document IDs that are related to the given document.
+	 * 获取 N 跳以内的相关文件路径。
+	 * 这是为上层检索提供的包装方法，只返回 'document' 类型的节点路径。
 	 */
 	async getRelatedFilePaths(params: { currentFilePath: string; maxHops?: number }): Promise<Set<string>> {
 		const relatedNodeIds = await this.getRelatedNodeIds(params.currentFilePath, params.maxHops ?? 2);
-		// Filter to only document nodes in SQL to avoid loading unnecessary data.
+		// 在 SQL 层面过滤掉非文档节点（如标签、链接节点），避免加载无效数据
 		const documentIds = await this.nodeRepo.getIdsByIdsAndTypes(Array.from(relatedNodeIds), ['document']);
 		return new Set(documentIds);
 	}
 
 	/**
-	 * Build a preview subgraph for UI display (N-hop from start node).
-	 * This uses efficient SQL queries, no in-memory graph needed.
-	 * 
-	 * @param params.currentFilePath The starting node ID or file path
-	 * @param params.maxNodes Maximum number of nodes to include (default: 30)
-	 * @param params.maxHops Maximum hops from the start node (default: 2)
+	 * 构建一个小型的子图预览，用于 UI 可视化展示。
+	 * 限制节点数量以保证渲染性能。
 	 */
 	async getPreview(params: { currentFilePath: string; maxNodes?: number; maxHops?: number }): Promise<GraphPreview> {
-		const maxNodes = params.maxNodes ?? 30;
+		const maxNodes = params.maxNodes ?? 30; // 默认最多显示 30 个节点
 		const maxHops = Math.max(0, Number(params.maxHops ?? 2));
 		const startNode = await this.getNode(params.currentFilePath);
 		if (!startNode) {
 			return { nodes: [], edges: [] };
 		}
 
-		// Get N-hop neighbors using batched SQL queries.
+		// 确定要包含在预览中的节点集合
 		const keep = new Set<string>([params.currentFilePath]);
 		let frontier = new Set<string>([params.currentFilePath]);
 		for (let hop = 0; hop < maxHops; hop++) {
@@ -350,7 +358,7 @@ export class GraphStore {
 			if (!frontier.size) break;
 		}
 
-		// Build nodes array
+		// 加载节点详情并构建预览数组
 		const nodes: GraphPreview['nodes'] = [];
 		const nodeMap = await this.nodeRepo.getByIds(Array.from(keep));
 		for (const [id, nodeRow] of nodeMap) {
@@ -362,7 +370,7 @@ export class GraphStore {
 			};
 
 			let label = node.label;
-			// Add # prefix for tags
+			// 标签类型的显示名称前缀加上 #
 			if (node.type === 'tag') {
 				label = `#${node.label}`;
 			}
@@ -370,11 +378,12 @@ export class GraphStore {
 			nodes.push({ id, label, type: node.type });
 		}
 
-		// Build edges array
+		// 构建这些节点之间的边
 		const nodeSet = new Set(nodes.map((n) => n.id));
 		const edges: GraphPreview['edges'] = [];
 		const outgoingEdges = await this.edgeRepo.getByFromNodes(Array.from(nodeSet));
 		for (const e of outgoingEdges) {
+			// 只保留终点也在预览节点集中的边
 			if (nodeSet.has(e.to_node_id)) {
 				edges.push({
 					from_node_id: e.from_node_id,
@@ -388,7 +397,8 @@ export class GraphStore {
 	}
 
 	/**
-	 * @returns Map<docId, { tags: string[]; categories: string[] }>
+	 * 批量获取多个文档关联的标签和分类。
+	 * @returns Map<文档ID, { 标签列表, 分类列表 }>
 	 */
 	async getTagsAndCategoriesByDocIds(docIds: string[]): Promise<Map<string, { tags: string[]; categories: string[] }>> {
 		const allTagCategoryEdge = await this.edgeRepo.getByFromNodesAndTypes(docIds, ['tagged', 'categorized']);

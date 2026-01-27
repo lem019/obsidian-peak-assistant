@@ -1,38 +1,43 @@
+/**
+ * @file types.ts (Settings)
+ * @description 插件设置的类型定义。
+ * 包含了 AI 服务配置、搜索配置、分块算法配置等所有持久化数据的接口。
+ */
+
 import { ProviderConfig, LLMOutputControlSettings } from '@/core/providers/types';
 import { CommandHiddenSettings, DEFAULT_COMMAND_HIDDEN_SETTINGS } from '@/service/CommandHiddenControlService';
 import type { DocumentType } from '@/core/document/types';
 import { PromptId, CONFIGURABLE_PROMPT_IDS } from '@/service/prompt/PromptId';
 
 /**
- * Document chunking configuration.
+ * 文档分块（Chunking）配置接口。
+ * 决定了长文档如何被分割成小块以适配嵌入模型（Embedding）。
  */
 export interface ChunkingSettings {
 	/**
-	 * Maximum chunk size in characters.
-	 * Default: 1000
+	 * 每个分块的最大字符数。
+	 * 默认：1000
 	 */
 	maxChunkSize: number;
 	/**
-	 * Overlap between chunks in characters.
-	 * Default: 200
+	 * 相邻分块之间的重叠字符数。
+	 * 默认：200
 	 */
 	chunkOverlap: number;
 	/**
-	 * Minimum document size to trigger chunking.
-	 * Default: 1500
+	 * 触发分块的最小文档大小。
+	 * 默认：1500
 	 */
 	minDocumentSizeForChunking: number;
 	/**
-	 * Embedding model configuration.
-	 * If not provided, embeddings will not be generated.
+	 * 嵌入模型配置。用于将文本块转换为数值向量。
 	 */
 	embeddingModel?: {
 		provider: string;
 		modelId: string;
 	};
 	/**
-	 * Rerank model configuration for improving search result relevance.
-	 * If not provided, reranking will not be performed.
+	 * 重排序模型配置。用于提高搜索结果的相关性。
 	 */
 	rerankModel?: {
 		provider: string;
@@ -41,7 +46,7 @@ export interface ChunkingSettings {
 }
 
 /**
- * Default chunking settings.
+ * 默认分块设置。
  */
 export const DEFAULT_CHUNKING_SETTINGS: ChunkingSettings = {
 	maxChunkSize: 1000,
@@ -50,47 +55,43 @@ export const DEFAULT_CHUNKING_SETTINGS: ChunkingSettings = {
 };
 
 /**
- * Search-related settings.
+ * 本地搜索与索引相关配置。
  */
 export interface SearchSettings {
 	/**
-	 * Automatically index files on startup.
-	 * If false, user must manually trigger indexing via command.
+	 * 是否在启动时自动扫描库中变更的文件并更新索引。
 	 */
 	autoIndex: boolean;
 	/**
-	 * File types to include in indexing.
+	 * 参与索引的文档类型。
 	 */
 	includeDocumentTypes: Record<DocumentType, boolean>;
 	/**
-	 * Document chunking configuration for embedding and vector search.
+	 * 分块配置。
 	 */
 	chunking: ChunkingSettings;
 	/**
-	 * File/directory ignore patterns (similar to .gitignore).
-	 * Files matching these patterns will not be indexed.
+	 * 忽略的文件/目录匹配模式。
 	 */
 	ignorePatterns: string[];
 	/**
-	 * Model configuration for AI search summary generation.
-	 * If not provided, will fallback to defaultModel from AI settings.
+	 * 用于生成搜索结果摘要或 AI 分析的模型。
 	 */
 	searchSummaryModel?: {
 		provider: string;
 		modelId: string;
 	};
 	/**
-	 * Index refresh interval in milliseconds for debouncing search index updates.
-	 * Default: 5000 (5 seconds)
+	 * 索引刷新的节流间隔（毫秒）。
 	 */
 	indexRefreshInterval: number;
 
 	/**
-	 * which implementation to use for ai analysis if web search is enabled.
+	 * 联网搜索实现：'perplexity' (API) 或 'local_chromium' (本地浏览器自动化)。
 	 */
 	aiAnalysisWebSearchImplement?: 'perplexity' | 'local_chromium';
 	/**
-	 * which model to use for ai analysis if perplexity is selected.
+	 * Perplexity 的模型 ID。
 	 */
 	perplexitySearchModel?: string;
 
@@ -99,15 +100,14 @@ export interface SearchSettings {
 }
 
 /**
- * Default search settings.
+ * 默认搜索设置。
  */
 export const DEFAULT_SEARCH_SETTINGS: SearchSettings = {
-	autoIndex: false, // Default to manual indexing
+	autoIndex: false,
 	includeDocumentTypes: {
 		markdown: true,
 		pdf: true,
 		image: true,
-		// All other document types default to false
 		csv: false,
 		json: false,
 		html: false,
@@ -142,7 +142,7 @@ export const DEFAULT_SEARCH_SETTINGS: SearchSettings = {
 		provider: 'openai',
 		modelId: 'gpt-4o-mini',
 	},
-	indexRefreshInterval: 5000, // 5 seconds
+	indexRefreshInterval: 5000,
 
 	aiAnalysisWebSearchImplement: 'local_chromium',
 
@@ -151,55 +151,54 @@ export const DEFAULT_SEARCH_SETTINGS: SearchSettings = {
 };
 
 /**
- * AI service configuration settings.
+ * AI 服务核心配置接口。
  */
 export interface AIServiceSettings {
+	// 存储聊天数据的根文件夹
 	rootFolder: string;
+	// 存储 Prompt 模板的文件夹
 	promptFolder: string;
+	// 存储附件的文件夹
 	uploadFolder: string;
+	// 默认聊天模型
 	defaultModel: {
 		provider: string;
 		modelId: string;
 	};
+	// 各个模型厂商的具体配置（API Key 等）
 	llmProviderConfigs: Record<string, ProviderConfig>;
 	/**
-	 * Enable profile mode (auto-update user profile)
+	 * 是否启用自动更新用户画像。
 	 */
 	profileEnabled?: boolean;
 	/**
-	 * Path to user profile file (relative to vault root)
+	 * 用户画像文件路径。
 	 */
 	profileFilePath?: string;
 	/**
-	 * Resources summary folder name (relative to rootFolder).
-	 * Used for storing resource summary notes (files, URLs, etc.).
+	 * 存储资源摘要的缓存文件夹。
 	 */
 	resourcesSummaryFolder: string;
 	/**
-	 * Enable prompt rewrite (auto-improve user prompts)
+	 * 是否启用 Prompt 自动改写（优化输入）。
 	 */
 	promptRewriteEnabled?: boolean;
 	/**
-	 * Default LLM output control settings for all models.
-	 * Can be overridden per conversation in chat interface.
+	 * 默认输出控制（温度、最大 Token 等）。
 	 */
 	defaultOutputControl?: LLMOutputControlSettings;
 	/**
-	 * Model configuration map for configurable prompt IDs.
-	 * Only prompts in CONFIGURABLE_PROMPT_IDS should be included here.
-	 * If not configured for a specific prompt, falls back to defaultModel.
+	 * 模型路由映射：针对特定 Prompt ID 使用特定的模型。
 	 */
 	promptModelMap?: Partial<Record<PromptId, { provider: string; modelId: string }>>;
 	/**
-	 * Default attachment handling mode.
-	 * 'direct': Send attachments directly to model (requires model capabilities)
-	 * 'degrade_to_text': Convert attachments to text summaries via OCR/parsing
+	 * 附件处理模式：'direct' (直接给模型) 或 'degrade_to_text' (先转成文字)。
 	 */
 	attachmentHandlingDefault?: 'direct' | 'degrade_to_text';
 }
 
 /**
- * Default values for AI service settings.
+ * 默认 AI 设置。
  */
 export const DEFAULT_AI_SERVICE_SETTINGS: AIServiceSettings = {
 	rootFolder: 'ChatFolder',
@@ -214,7 +213,6 @@ export const DEFAULT_AI_SERVICE_SETTINGS: AIServiceSettings = {
 	profileEnabled: true,
 	profileFilePath: 'ChatFolder/system/User-Profile.md',
 	promptRewriteEnabled: false,
-	// Programmatically initialize promptModelMap with defaultModel only for configurable prompt IDs
 	promptModelMap: (() => {
 		const defaultModel = { provider: 'openai', modelId: 'gpt-4o-mini' };
 		const map: Partial<Record<PromptId, { provider: string; modelId: string }>> = {};
@@ -223,7 +221,7 @@ export const DEFAULT_AI_SERVICE_SETTINGS: AIServiceSettings = {
 		}
 		return map;
 	})(),
-	attachmentHandlingDefault: 'direct', // Default to direct for user experience.
+	attachmentHandlingDefault: 'direct',
 	defaultOutputControl: {
 		temperature: 1.0,
 		topP: 0.9,
@@ -233,39 +231,39 @@ export const DEFAULT_AI_SERVICE_SETTINGS: AIServiceSettings = {
 		maxOutputTokens: 4096,
 		reasoningEffort: 'medium',
 		textVerbosity: 'medium',
-		timeoutTotalMs: 300000, // 5 minutes
-		timeoutStepMs: 30000, // 30 seconds
+		timeoutTotalMs: 300000,
+		timeoutStepMs: 30000,
 	},
 };
 
 /**
- * Shape of plugin-level persisted settings.
+ * 插件根配置接口。
  */
 export interface MyPluginSettings {
-	// general folder settings
+	// 各类辅助文件夹设置
 	scriptFolder: string;
 	htmlViewConfigFile: string;
 	statisticsDataStoreFolder: string;
 	dataStorageFolder: string;
 
-	// core settings
+	// 核心业务设置块
 	ai: AIServiceSettings;
 	search: SearchSettings;
 
-	// the try to replace other plugins' functions' settings
+	// 操作拦截/隐藏设置
 	commandHidden: CommandHiddenSettings;
 
 	/**
-	 * SQLite backend preference.
-	 * - 'auto': Automatically detect and use better-sqlite3 if available, otherwise use sql.js
-	 * - 'better-sqlite3': Force use better-sqlite3 (requires manual installation)
-	 * - 'sql.js': Force use sql.js (default, cross-platform)
+	 * SQLite 数据库后端选择。
+	 * - 'auto': 自动检测 Better-SQLite3 或 SQL.js。
+	 * - 'better-sqlite3': 强行使用原生模块（更快，但需要特定环境）。
+	 * - 'sql.js': 强行使用 WebAssembly 版（兼容性最佳）。
 	 */
 	sqliteBackend?: 'auto' | 'better-sqlite3' | 'sql.js';
 }
 
 /**
- * Baseline settings applied when no persisted data exists.
+ * 初始兜底设置。
  */
 export const DEFAULT_SETTINGS: MyPluginSettings = {
 	scriptFolder: 'A-control/PeakAssistant/Scripts',
@@ -278,5 +276,6 @@ export const DEFAULT_SETTINGS: MyPluginSettings = {
 
 	commandHidden: DEFAULT_COMMAND_HIDDEN_SETTINGS,
 
-	sqliteBackend: 'auto', // Auto-detect: try better-sqlite3 first, fallback to sql.js
+	sqliteBackend: 'auto',
 };
+

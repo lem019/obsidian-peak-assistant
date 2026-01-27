@@ -9,6 +9,17 @@
  * Requirements:
  * - better-sqlite3 must be installed in node_modules
  * - Native module (.node file) must be available at runtime
+ * 
+ * 基于 better-sqlite3（原生模块）的文件型 SQLite 存储实现。
+ * 
+ * 优势：
+ * - 原生性能，无 WASM 开销
+ * - 同步 API，无需异步/同步桥接
+ * - 成熟且稳定
+ * 
+ * 要求：
+ * - better-sqlite3 必须安装在 node_modules 中
+ * - 运行时必须提供原生模块（.node 文件）
  */
 import { migrateSqliteSchema } from '@/core/storage/sqlite/ddl';
 import { Kysely, SqliteIntrospector, SqliteQueryCompiler, SqliteAdapter, type CompiledQuery } from 'kysely';
@@ -19,7 +30,11 @@ import * as path from 'path';
 import type { SqliteDatabase, SqliteStoreType } from '../types';
 
 /**
- * Custom SQLite driver that intercepts all execute operations
+ * Custom SQLite driver that intercepts all execute operations.
+ * Adapts Kysely's driver interface to better-sqlite3's synchronous API.
+ * 
+ * 定制化 SQLite 驱动，拦截所有执行操作。
+ * 将 Kysely 的驱动接口适配到 better-sqlite3 的同步 API。
  */
 class CustomSqliteDriver {
 	private adapter: { exec: (sql: string) => void; prepare: (sql: string) => any };
@@ -29,18 +44,34 @@ class CustomSqliteDriver {
 	}
 
 	async init(): Promise<void> { }
+
+	/**
+	 * Acquires a connection. Since better-sqlite3 is synchronous and single-threaded
+	 * within a process, we simply return a wrapper around the adapter.
+	 * 
+	 * 获取连接。由于 better-sqlite3 是同步且在进程内单线程的，
+	 * 我们只需返回一个包装了适配器的对象。
+	 */
 	async acquireConnection(): Promise<{ executeQuery: (query: CompiledQuery) => Promise<any>; streamQuery: (query: CompiledQuery, chunkSize?: number) => AsyncIterableIterator<any> }> {
 		return {
 			executeQuery: this.executeQuery.bind(this),
 			streamQuery: this.streamQuery.bind(this)
 		};
 	}
+
 	async beginTransaction(): Promise<void> { this.adapter.exec('BEGIN TRANSACTION'); }
 	async commitTransaction(): Promise<void> { this.adapter.exec('COMMIT'); }
 	async rollbackTransaction(): Promise<void> { this.adapter.exec('ROLLBACK'); }
 	async releaseConnection(): Promise<void> { }
 	async destroy(): Promise<void> { }
 
+	/**
+	 * Executes a compiled query against the database.
+	 * Handles both SELECT (returning rows) and non-SELECT (returning metadata).
+	 * 
+	 * 对数据库执行编译后的查询。
+	 * 同时处理 SELECT（返回行）和非 SELECT（返回元数据）操作。
+	 */
 	async executeQuery(compiledQuery: CompiledQuery): Promise<any> {
 		const { sql, parameters } = compiledQuery;
 		const stmt = this.adapter.prepare(sql);
@@ -63,6 +94,7 @@ class CustomSqliteDriver {
 		}
 
 		// Format result according to Kysely's driver interface expectations
+		// 根据 Kysely 的驱动接口预期格式化结果
 		if (Array.isArray(result)) {
 			return {
 				rows: result,
@@ -72,12 +104,19 @@ class CustomSqliteDriver {
 		} else {
 			return {
 				rows: [],
+				// lastInsertRowid is used for INSERT operations | lastInsertRowid 用于插入操作
 				insertId: result.lastInsertRowid ? BigInt(result.lastInsertRowid) : undefined,
+				// changes is used for UPDATE/DELETE operations | changes 用于更新/删除操作
 				numAffectedRows: result.changes ? BigInt(result.changes) : undefined
 			};
 		}
 	}
 
+	/**
+	 * Streams a query result. Implemented as a basic async iterator over the rows.
+	 * 
+	 * 流式查询结果。实现为对行进行的简单异步迭代。
+	 */
 	async *streamQuery(compiledQuery: CompiledQuery, chunkSize?: number): AsyncIterableIterator<any> {
 		const result = await this.executeQuery(compiledQuery);
 		if (result.rows && Array.isArray(result.rows)) {
@@ -95,6 +134,13 @@ class CustomSqliteDriver {
 	}
 }
 
+/**
+ * Custom Kysely dialect for better-sqlite3.
+ * Configures the query compiler and driver for SQLite compatibility.
+ * 
+ * 用于 better-sqlite3 的自定义 Kysely 方言。
+ * 配置查询编译器和驱动程序以实现 SQLite 兼容性。
+ */
 class CustomSqliteDialect {
 	private db: BetterSqlite3Database;
 
@@ -115,10 +161,14 @@ class CustomSqliteDialect {
 }
 
 // Don't import better-sqlite3 at the top level - load it dynamically to avoid module resolution errors
+// 不要在顶层导入 better-sqlite3 - 动态加载以避免模块解析错误
 
 /**
  * Type definition for better-sqlite3 Database.
  * We don't import it at the top level to avoid module resolution errors.
+ * 
+ * better-sqlite3 数据库的类型定义。
+ * 我们不在顶层导入它，以避免模块解析错误。
  */
 type BetterSqlite3Database = {
 	exec(sql: string): void;
@@ -137,18 +187,27 @@ type BetterSqlite3Database = {
  * 
  * Note: better-sqlite3 is loaded dynamically to avoid module resolution errors
  * in Obsidian plugin environment.
+ * 
+ * 使用 better-sqlite3 的文件型 SQLite 存储。
+ * 
+ * 该实现使用 better-sqlite3 的原生 SQLite 绑定，
+ * 提供比 WebAssembly 方案更好的性能。
+ * 
+ * 注意：better-sqlite3 是动态加载的，以避免在 Obsidian 插件环境中出现模块解析错误。
  */
 export class BetterSqliteStore implements SqliteDatabase {
 	private db: BetterSqlite3Database;
 	private kyselyInstance: Kysely<DbSchema>;
 
 	// Cache for better-sqlite3 module if successfully loaded
+	// 如果成功加载，缓存 better-sqlite3 模块
 	private static cachedBetterSqlite3: typeof import('better-sqlite3') | null = null;
 
 	private constructor(db: BetterSqlite3Database) {
 		this.db = db;
 
 		// Create Kysely instance with custom dialect that intercepts all execute operations
+		// 使用自定义方言创建 Kysely 实例，拦截所有执行操作
 		this.kyselyInstance = new Kysely<DbSchema>({
 			dialect: new CustomSqliteDialect(db),
 		});
@@ -160,6 +219,11 @@ export class BetterSqliteStore implements SqliteDatabase {
 	 * Note: In Obsidian (Electron) environment, better-sqlite3 may fail to load
 	 * if the native module (.node file) is not compatible with Electron's Node.js version.
 	 * 
+	 * 检查 better-sqlite3 是否可用并正常工作。
+	 * 
+	 * 注意：在 Obsidian (Electron) 环境中，如果原生模块（.node 文件）
+	 * 与 Electron 的 Node.js 版本不兼容，better-sqlite3 可能无法加载。
+	 * 
 	 * @param app - Obsidian app instance (optional, used for vault path resolution)
 	 * @returns Promise resolving to true if better-sqlite3 is available and working
 	 */
@@ -168,6 +232,7 @@ export class BetterSqliteStore implements SqliteDatabase {
 			let betterSqlite3;
 
 			// Strategy 1: Try normal require (works if node_modules is in require path)
+			// 策略 1：尝试标准 require（如果 node_modules 在 require 路径中则有效）
 			try {
 				betterSqlite3 = require('better-sqlite3');
 			} catch (requireError: any) {
@@ -176,6 +241,7 @@ export class BetterSqliteStore implements SqliteDatabase {
 					'Code:', requireError.code,
 				);
 				// Strategy 2: Try using absolute paths to plugin's node_modules
+				// 策略 2：尝试使用指向插件 node_modules 的绝对路径
 				if (requireError.code === 'MODULE_NOT_FOUND') {
 					const possiblePaths = BetterSqliteStore.getPossiblePaths(app);
 
@@ -208,19 +274,21 @@ export class BetterSqliteStore implements SqliteDatabase {
 
 			const Database = betterSqlite3.default || betterSqlite3;
 
-			// Check if it's a function (constructor)
+			// Check if it's a function (constructor) | 检查它是否是一个函数（构造函数）
 			if (typeof Database !== 'function') {
 				console.warn('[BetterSqliteStore] better-sqlite3 is not a function');
 				return false;
 			}
 
 			// Try to create a temporary in-memory database to verify the native module works
+			// 尝试创建一个临时的内存数据库，以验证原生模块是否正常工作
 			try {
 				const testDb = new Database(':memory:');
 				testDb.close();
 				console.debug('[BetterSqliteStore] better-sqlite3 native module is working');
 
 				// Cache the module only after successful verification
+				// 仅在成功验证后缓存该模块
 				BetterSqliteStore.cachedBetterSqlite3 = betterSqlite3;
 				return true;
 			} catch (error) {
@@ -373,26 +441,33 @@ export class BetterSqliteStore implements SqliteDatabase {
 	/**
 	 * Open a new database connection.
 	 * 
-	 * @param params - Database parameters
-	 * @param params.dbFilePath - Path to the SQLite database file
+	 * 打开一个新的数据库连接。
+	 * 
+	 * @param params - Database parameters | 数据库参数
+	 * @param params.dbFilePath - Path to the SQLite database file | SQLite 数据库文件的路径
 	 * @returns Promise resolving to object with store instance and sqliteVecAvailable flag
+	 *          返回包含存储实例和 sqliteVecAvailable 标志的对象
 	 * @throws Error if better-sqlite3 native module cannot be loaded
+	 *         如果无法加载 better-sqlite3 原生模块，则抛出错误
 	 */
 	static async open(params: { dbFilePath: string; app?: App }): Promise<{ store: BetterSqliteStore; sqliteVecAvailable: boolean }> {
 		// Dynamically load better-sqlite3 to avoid module resolution errors at import time
+		// 动态加载 better-sqlite3，以避免在导入时出现模块解析错误
 		const BetterSqlite3 = BetterSqliteStore.loadBetterSqlite3(params.app);
 		const Database = BetterSqlite3.default || BetterSqlite3;
 
 		let db: BetterSqlite3Database;
 		try {
 			db = new Database(params.dbFilePath, {
-				// Enable WAL mode for better concurrency
-				// This is the default, but we make it explicit
+				// Enable WAL mode for better concurrency | 启用 WAL 模式以获得更好的并发性能
+				// This is the default, but we make it explicit | 这是默认设置，但我们明确指定它
 			}) as BetterSqlite3Database;
 
 			// Immediately attempt to recover from any potential lock issues
+			// 立即尝试从任何潜在的锁定问题中恢复
 			try {
 				// Force a WAL checkpoint to clear any pending transactions
+				// 强制进行 WAL 检查点以清除任何挂起的事务
 				db.pragma('wal_checkpoint(TRUNCATE)');
 				console.debug('[BetterSqliteStore] Initial WAL checkpoint completed');
 			} catch (checkpointError) {
@@ -400,6 +475,7 @@ export class BetterSqliteStore implements SqliteDatabase {
 			}
 		} catch (error) {
 			// If native module loading fails, provide a helpful error message
+			// 如果原生模块加载失败，提供有用的错误提示信息
 			if (error instanceof Error && (error.message.includes('indexOf') || error.message.includes('bindings'))) {
 				throw new Error(
 					'better-sqlite3 native module failed to load. ' +
@@ -412,17 +488,21 @@ export class BetterSqliteStore implements SqliteDatabase {
 			throw error;
 		}
 
-		// Enable foreign keys
+		// Enable foreign keys | 启用外键约束
 		db.pragma('foreign_keys = ON');
 
 		// Set busy timeout to prevent infinite blocking on locked database
 		// When database is locked (e.g., concurrent read/write operations),
 		// operations will fail after 5 seconds instead of blocking indefinitely
+		// 设置繁忙超时时间，防止在数据库锁定时无限期阻塞。
+		// 当数据库被锁定（例如并发读写）时，操作将在 5 秒后失败，而不是无限期等待。
 		db.pragma('busy_timeout = 5000');
 
 		// Attempt to recover from potential lock issues
+		// 尝试从潜在的锁定问题中恢复
 		try {
 			// Check if database is in a locked state and try to recover
+			// 检查数据库是否处于锁定状态并尝试恢复
 			const walCheckpoint = db.pragma('wal_checkpoint(TRUNCATE)');
 			console.debug('[BetterSqliteStore] WAL checkpoint result:', walCheckpoint);
 		} catch (error) {
@@ -430,9 +510,11 @@ export class BetterSqliteStore implements SqliteDatabase {
 		}
 
 		// Try to load sqlite-vec extension for vector similarity search
+		// 尝试加载用于向量相似度搜索的 sqlite-vec 扩展
 		const sqliteVecAvailable = BetterSqliteStore.tryLoadSqliteVec(db, params.app);
 
 		// Run migrations directly with db (has exec method)
+		// 直接使用 db（具有 exec 方法）运行迁移
 		migrateSqliteSchema(db);
 
 		return { store: new BetterSqliteStore(db), sqliteVecAvailable };
@@ -441,9 +523,12 @@ export class BetterSqliteStore implements SqliteDatabase {
 	/**
 	 * Finds the path to sqlite-vec extension file.
 	 * Tries getLoadablePath() first, then falls back to manual path resolution.
+	 * 
+	 * 查找 sqlite-vec 扩展文件的路径。
+	 * 首先尝试 getLoadablePath()，然后回退到手动路径解析。
 	 */
 	private static findSqliteVecExtensionPath(sqliteVec: any, app?: App): string | null {
-		// Try getLoadablePath() first
+		// Try getLoadablePath() first | 首先尝试 getLoadablePath()
 		if (sqliteVec.getLoadablePath && typeof sqliteVec.getLoadablePath === 'function') {
 			try {
 				const extensionPath = sqliteVec.getLoadablePath();
@@ -457,6 +542,7 @@ export class BetterSqliteStore implements SqliteDatabase {
 		}
 
 		// Determine platform-specific package name and file extension
+		// 确定特定平台的包名和文件扩展名
 		const platform = process.platform;
 		const arch = process.arch;
 		let packageName: string;
@@ -476,9 +562,11 @@ export class BetterSqliteStore implements SqliteDatabase {
 		}
 
 		// Build possible paths (without require.resolve, not available in Obsidian bundled environment)
+		// 构建可能的路径（不使用 require.resolve，因为它在 Obsidian 打包环境中不可用）
 		const possiblePaths: string[] = [];
 
 		// Primary: Use Obsidian vault-based path (most reliable in plugin environment)
+		// 首选：使用基于 Obsidian 仓库的路径（在插件环境中最为可靠）
 		if (app) {
 			const basePath = (app.vault.adapter as any)?.basePath;
 			if (basePath) {
@@ -489,12 +577,13 @@ export class BetterSqliteStore implements SqliteDatabase {
 		}
 
 		// Fallback: Try process.cwd() based path
+		// 回退：尝试基于 process.cwd() 的路径
 		try {
 			possiblePaths.push(
 				path.join(process.cwd(), 'node_modules', packageName, `vec0.${fileExt}`)
 			);
 		} catch {
-			// process.cwd() may fail in some environments
+			// process.cwd() may fail in some environments | process.cwd() 在某些环境中可能会失败
 		}
 
 		console.debug(`[BetterSqliteStore] Trying alternative paths: ${possiblePaths.join(', ')}`);
@@ -510,6 +599,8 @@ export class BetterSqliteStore implements SqliteDatabase {
 
 	/**
 	 * Attempts to manually load sqlite-vec extension using db.loadExtension().
+	 * 
+	 * 尝试使用 db.loadExtension() 手动加载 sqlite-vec 扩展。
 	 */
 	private static tryManualLoadExtension(
 		db: BetterSqlite3Database,
@@ -530,7 +621,7 @@ export class BetterSqliteStore implements SqliteDatabase {
 			console.debug(`[BetterSqliteStore] Loading extension manually from: ${extensionPath}`);
 			db.loadExtension(extensionPath);
 
-			// Verify extension is loaded
+			// Verify extension is loaded | 验证扩展是否已加载
 			const versionResult = db.prepare('SELECT vec_version() as version').get() as { version: string } | undefined;
 			if (versionResult) {
 				console.debug(`[BetterSqliteStore] sqlite-vec extension loaded manually (version: ${versionResult.version})`);

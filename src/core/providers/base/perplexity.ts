@@ -1,3 +1,20 @@
+/**
+ * @file perplexity.ts
+ * @description Perplexity 联网搜索模型提供商实现类。
+ * 
+ * Perplexity 的特色在于其集成了实时搜索能力的 LLM（如 Sonar 系列）。
+ * 本文件实现了与 Perplexity API 的对接，并提供了标准的对话接口。
+ * 
+ * 主要职责：
+ * 1. 管理 Perplexity 联网搜索模型（Sonar 家族）的 ID 映射。
+ * 2. 提供专门针对搜索模型的显示名称格式化逻辑（formatModelDisplayName）。
+ * 3. 封装流式和阻塞式对话请求。
+ * 
+ * 逻辑细节：
+ * 与其他厂商不同，Perplexity 的模型命名包含大量连字符和系列名（如 sonar-pro, sonar-reasoning）。
+ * 我们在 UI 展示时会通过 `formatModelDisplayName` 进行美化，使其更符合用户习惯。
+ */
+
 import {
 	LLMRequest,
 	LLMResponse,
@@ -10,49 +27,36 @@ import { createPerplexity, type PerplexityProvider } from '@ai-sdk/perplexity';
 import { type LanguageModel } from 'ai';
 import { blockChat, streamChat } from '../adapter/ai-sdk-adapter';
 
+/** 默认请求超时 */
 const DEFAULT_PERPLEXITY_TIMEOUT_MS = 60000;
+/** 官方 API 基础地址 */
 const PERPLEXITY_DEFAULT_BASE = 'https://api.perplexity.ai';
 
 export const PROVIDER_ID_PERPLEXITY = 'perplexity';
 
 /**
- * Model mapping interface containing both the actual API model ID and the icon identifier.
+ * 模型映射接口：记录 API 真实 ID 与 UI 图标 ID。
  */
 interface ModelMapping {
-	/** Actual API model ID to use for API calls */
+	/** API 调用时使用的模型标识 */
 	modelId: string;
-	/** Icon identifier for UI display, compatible with @lobehub/icons ModelIcon component */
+	/** 图标 ID，兼容 @lobehub/icons */
 	icon: string;
 }
 
 /**
- * Map user-facing model IDs to actual API model IDs and icons.
- *
- * DESIGN EVOLUTION:
- *
- * Initially, we maintained a complete list (KNOWN_PERPLEXITY_CHAT_MODELS) that included all
- * Perplexity model IDs, extracted from @ai-sdk/perplexity type definitions. This list was used
- * directly for getAvailableModels().
- *
- * CURRENT APPROACH:
- *
- * We now use a unified mapping structure for consistency with other providers:
- * - User-facing IDs (keys): Clean names without version suffixes where applicable
- * - API model IDs (modelId): Actual model IDs to use for API calls
- * - Icons (icon): All Perplexity models use 'perplexity' icon
- *
- * Similar to OpenAI and Claude, we map user-friendly names to specific versions for API calls,
- * ensuring users see clean names while we use specific versions internally.
- *
- * DATA SOURCES:
- * - Original model IDs: @ai-sdk/perplexity package type definitions (PerplexityLanguageModelId type)
- * - Official documentation: https://docs.perplexity.ai/getting-started/pricing
- * - When adding new models, check both sources
- *
- * This is now the single source of truth for available Perplexity models.
+ * 核心映射表：定义了插件支持的 Perplexity 联网模型。
+ * 
+ * Perplexity 主要提供以下几种变体：
+ * - sonar-pro: 高性能联网搜索模型。
+ * - sonar-reasoning: 带有思维链推理能力的搜索模型。
+ * - sonar-deep-research: 深度研究模式模型。
+ * 
+ * 设计演进：
+ * 采用统一映射结构，确保用户看到简洁名称，而 API 调用使用最新 ID。
  */
 const MODEL_ID_MAP: Record<string, ModelMapping> = {
-	// Sonar series
+	// Sonar 家族 - 当前最强联网搜索系列
 	'sonar-deep-research': { modelId: 'sonar-deep-research', icon: 'perplexity' },
 	'sonar-reasoning-pro': { modelId: 'sonar-reasoning-pro', icon: 'perplexity' },
 	'sonar-reasoning': { modelId: 'sonar-reasoning', icon: 'perplexity' },
@@ -61,14 +65,13 @@ const MODEL_ID_MAP: Record<string, ModelMapping> = {
 };
 
 /**
- * Get list of available Perplexity model IDs.
- *
- * @returns Array of user-facing model IDs (keys from MODEL_ID_MAP)
+ * 获取支持的模型列表。
  */
 export function getKnownPerplexityModelIds(): readonly string[] {
 	return Object.keys(MODEL_ID_MAP);
 }
 
+/** Perplexity 模型列表 API 响应格式 */
 interface PerplexityModelResponse {
 	object: string;
 	data: Array<{
@@ -80,21 +83,21 @@ interface PerplexityModelResponse {
 }
 
 /**
- * Format model display name from model ID
+ * 【显示优化】格式化模型展示名称。
+ * 将 'sonar-reasoning-pro' 转换为 'Sonar Reasoning Pro'。
  */
 function formatModelDisplayName(modelId: string): string {
 	let displayName = modelId;
 	
-	// Handle pplx models
+	// 处理旧版以 pplx- 开头的模型名
 	if (displayName.startsWith('pplx-')) {
 		displayName = displayName.replace('pplx-', 'Perplexity ');
-		// Convert to title case after the prefix
 		displayName = displayName.replace(/-([a-z])/g, (_, letter) => ` ${letter.toUpperCase()}`);
 		displayName = displayName.replace(/^([a-z])/g, (_, letter) => letter.toUpperCase());
 		return displayName;
 	}
 	
-	// Handle llama-3-sonar models
+	// 处理 Llama 关联的搜索模型
 	if (displayName.includes('llama-3-sonar')) {
 		displayName = displayName.replace('llama-3-sonar-', 'Llama 3 Sonar ');
 		displayName = displayName.replace(/-([a-z])/g, (_, letter) => ` ${letter.toUpperCase()}`);
@@ -102,7 +105,7 @@ function formatModelDisplayName(modelId: string): string {
 		return displayName;
 	}
 	
-	// For other models, capitalize first letter if needed
+	// 常规格式化：首字母大写
 	if (displayName.length > 0 && displayName[0] !== displayName[0].toUpperCase()) {
 		displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
 	}
@@ -111,8 +114,7 @@ function formatModelDisplayName(modelId: string): string {
 }
 
 /**
- * Fetch models from Perplexity API
- * @internal This function is reserved for future use
+ * 【预留逻辑】从服务器拉取模型列表。
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function fetchPerplexityModels(
@@ -146,7 +148,6 @@ async function fetchPerplexityModels(
 			throw new Error('Invalid response format: data array not found');
 		}
 
-		// Convert API response to ModelMetaData format
 		return data.data.map((model) => {
 			const displayName = formatModelDisplayName(model.id);
 
@@ -162,13 +163,23 @@ async function fetchPerplexityModels(
 	}
 }
 
+/**
+ * Perplexity 服务配置选项。
+ */
 export interface PerplexityChatServiceOptions {
+	/** 自定义 API 地址 */
 	baseUrl?: string;
+	/** 必填：Perplexity API Key */
 	apiKey?: string;
+	/** 其他扩展参数 */
 	extra?: Record<string, any>;
 }
 
+/**
+ * Perplexity 对话服务类。
+ */
 export class PerplexityChatService implements LLMProviderService {
+	// 底层 AI SDK 的 Perplexity 适配器
 	private readonly client: PerplexityProvider;
 
 	constructor(private readonly options: PerplexityChatServiceOptions) {
@@ -186,18 +197,19 @@ export class PerplexityChatService implements LLMProviderService {
 	}
 
 	/**
-	 * Normalize user-facing model ID to actual API model ID by looking up in MODEL_ID_MAP.
-	 *
-	 * @param modelId - User-facing model ID
-	 * @returns Actual API model ID from MODEL_ID_MAP, or original ID if not found in mapping
+	 * 【内部逻辑】标准化模型 ID。
 	 */
 	private normalizeModelId(modelId: string): string {
 		return MODEL_ID_MAP[modelId]?.modelId || modelId;
 	}
 
+	/**
+	 * 获取底层语言模型客户端。
+	 */
 	modelClient(model: string): LanguageModel {
 		return this.client(this.normalizeModelId(model)) as unknown as LanguageModel;
 	}
+
 
 	async blockChat(request: LLMRequest<any>): Promise<LLMResponse> {
 		return blockChat(this.modelClient(request.model), request);

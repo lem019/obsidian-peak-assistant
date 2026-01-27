@@ -11,8 +11,15 @@ import type { AIServiceManager } from '@/service/chat/service-manager';
 import { getDefaultDocumentSummary } from './helper/DocumentLoaderHelpers';
 
 /**
- * Canvas document loader.
- * Extracts text from canvas JSON structure (nodes and edges).
+ * Canvas Document Loader
+ * 
+ * Responsible for parsing Obsidian .canvas files. It extracts text content from canvas nodes 
+ * (both text nodes and file labels) and edge labels to create a searchable document.
+ * 
+ * Canvas 文档加载器
+ * 
+ * 负责解析 Obsidian 的 .canvas 文件。它从画布节点（包括文本节点和文件标签）以及边标签中提取文本内容，
+ * 从而创建一个可搜索的文档对象。
  */
 export class CanvasDocumentLoader implements DocumentLoader {
 	constructor(
@@ -20,22 +27,35 @@ export class CanvasDocumentLoader implements DocumentLoader {
 		private readonly aiServiceManager?: AIServiceManager
 	) {}
 
+	/**
+	 * Returns the type of document handled by this loader.
+	 * 返回此加载器处理的文档类型：'canvas'。
+	 */
 	getDocumentType(): DocumentType {
 		return 'canvas';
 	}
 
+	/**
+	 * Returns the list of supported file extensions.
+	 * 返回支持的文件扩展名列表：['canvas']。
+	 */
 	getSupportedExtensions(): string[] {
 		return ['canvas'];
 	}
 
 	/**
 	 * Check if a file path matches any of the supported extensions.
+	 * 检查给定文件路径是否匹配支持的扩展名。
 	 */
 	private isSupportedPath(path: string): boolean {
 		const supportedExts = this.getSupportedExtensions();
 		return supportedExts.some(ext => path.endsWith('.' + ext));
 	}
 
+	/**
+	 * Reads a canvas file by its path and converts it into a Document object.
+	 * 根据路径读取 Canvas 文件并将其转换为 Document 对象。
+	 */
 	async readByPath(filePath: string, genCacheContent?: boolean): Promise<Document | null> {
 		const file = this.app.vault.getAbstractFileByPath(filePath);
 		if (!file || !(file instanceof TFile)) return null;
@@ -43,6 +63,10 @@ export class CanvasDocumentLoader implements DocumentLoader {
 		return await this.readCanvasFile(file, genCacheContent);
 	}
 
+	/**
+	 * Splits the canvas content into smaller chunks for indexing and LLM retrieval.
+	 * 将 Canvas 内容拆分为较小的分块，以便进行索引和 LLM 检索。
+	 */
 	async chunkContent(
 		doc: Document,
 		settings: ChunkingSettings,
@@ -77,6 +101,10 @@ export class CanvasDocumentLoader implements DocumentLoader {
 		return chunks;
 	}
 
+	/**
+	 * Scans the vault for canvas files and yields them in batches.
+	 * 扫描库中的 Canvas 文件，并按批次返回文件元数据。
+	 */
 	async *scanDocuments(params?: { limit?: number; batchSize?: number }): AsyncGenerator<Array<{ path: string; mtime: number; type: DocumentType }>> {
 		const limit = params?.limit ?? Infinity;
 		const batchSize = params?.batchSize ?? 100;
@@ -101,7 +129,8 @@ export class CanvasDocumentLoader implements DocumentLoader {
 	}
 
 	/**
-	 * Get summary for a Canvas document
+	 * Get summary for a Canvas document. Uses the AI service to generate a summary.
+	 * 获取 Canvas 文档的摘要。使用 AI 服务生成摘要。
 	 */
 	async getSummary(
 		source: Document | string,
@@ -117,6 +146,10 @@ export class CanvasDocumentLoader implements DocumentLoader {
 		return getDefaultDocumentSummary(source, this.aiServiceManager, provider, modelId);
 	}
 
+	/**
+	 * Internal method to parse the canvas JSON structure.
+	 * 内部方法：解析 Canvas 的 JSON 结构，提取文本信息。
+	 */
 	private async readCanvasFile(file: TFile, genCacheContent?: boolean): Promise<Document | null> {
 		try {
 			const fileContents = await this.app.vault.cachedRead(file);
@@ -124,7 +157,7 @@ export class CanvasDocumentLoader implements DocumentLoader {
 			
 			const texts: string[] = [];
 			
-			// Extract text from nodes
+			// Extract text from nodes (Nodes can be text bits or links to files)
 			for (const node of canvas.nodes ?? []) {
 				if (node.type === 'text' && node.text) {
 					texts.push(node.text);
@@ -133,7 +166,7 @@ export class CanvasDocumentLoader implements DocumentLoader {
 				}
 			}
 			
-			// Extract labels from edges
+			// Extract labels from edges (Connections between nodes)
 			for (const edge of (canvas.edges ?? []).filter(e => !!e.label)) {
 				texts.push(edge.label!);
 			}
@@ -180,7 +213,8 @@ export class CanvasDocumentLoader implements DocumentLoader {
 }
 
 /**
- * Canvas data structure.
+ * Canvas data structure mapping the JSON format of Obsidian .canvas files.
+ * 映射 Obsidian .canvas 文件 JSON 格式的数据结构。
  */
 interface CanvasData {
 	nodes?: CanvasNode[];

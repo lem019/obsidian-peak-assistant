@@ -1,3 +1,50 @@
+/**
+ * ============================================================================
+ * 文件说明: DailyStatisticsService.ts - 每日统计服务
+ * ============================================================================
+ * 
+ * 【这个文件是干什么的】
+ * 这个文件负责统计和分析用户每天的工作情况，它结合了两个数据源：
+ * 1. Git 提交记录：统计代码/笔记的增删改（字符数、文件数、TODO 等）
+ * 2. 活动日志：统计应用使用时长、文档编辑时长等
+ * 
+ * 就像一个智能的"工作日报生成器"，自动帮你记录每天做了什么、花了多少时间。
+ * 
+ * 【起了什么作用】
+ * 1. Git 数据分析: 分析每天的 Git 提交，统计增加/删除的字符数、修改的文件数
+ * 2. TODO 追踪: 自动识别新增、完成、删除的 TODO 项目
+ * 3. 活动时长统计: 计算每天的工作时长、每个文档的编辑时长
+ * 4. 数据聚合: 将多个数据源的信息整合成一份完整的每日报告
+ * 5. 批量处理: 支持批量处理多天的数据，用于生成周报、月报
+ * 
+ * 【举例介绍】
+ * 假设今天是 2026年1月24日，你在 Obsidian 中工作了一天：
+ * 
+ * Git 统计会告诉你：
+ * - 增加了 2500 个字符（新写的内容）
+ * - 删除了 800 个字符（删除或修改的内容）
+ * - 修改了 5 个文件
+ * - 新增了 3 个 TODO 项
+ * - 完成了 2 个 TODO 项
+ * - 添加了 1 张图片
+ * 
+ * 活动日志统计会告诉你：
+ * - 总工作时长：4.5 小时
+ * - "项目笔记.md" 编辑了 1.2 小时
+ * - "每日日记.md" 编辑了 0.8 小时
+ * - 其他文件编辑了 2.5 小时
+ * 
+ * 这些数据最终会被整合成一个 JSON 对象，保存到数据文件中，
+ * 可以用于生成图表、分析工作习惯、制定改进计划等。
+ * 
+ * 【技术实现】
+ * - 使用 simple-git 库分析 Git 仓库
+ * - 使用正则表达式识别 Markdown 中的图片链接和 TODO 项
+ * - 使用时间戳计算活动时长
+ * - 支持三种处理模式：单日处理、批量处理、数据整理
+ * ============================================================================
+ */
+
 import * as fs from 'fs';
 import * as path from 'path';
 import { simpleGit, SimpleGit, CleanOptions } from 'simple-git';
@@ -7,14 +54,22 @@ import { ActivityRecordAchieved, loadMetricEntries } from '@/service/ActivitySer
 
 // --------------------------------------------------------------------------------
 // date functions
+// 日期处理函数
 
+// 日期时间格式：YYYYMMDD-HH:mm:ss（例如：20260124-14:30:45）
 const dateTimeFormat = 'YYYYMMDD-HH:mm:ss';
+// 日期格式：YYYYMMDD（例如：20260124）
 const dateFormat = 'YYYYMMDD';
 
 /**
  * Parse date string in %Y%m%d format and get the time range from 0:00 to 24:00 for that day.
- * @param dateStr Date string in %Y%m%d format
+ * 解析 YYYYMMDD 格式的日期字符串，返回该日期从 0:00 到 24:00 的时间范围
+ * 
+ * @param dateStr Date string in %Y%m%d format / 日期字符串，格式为 YYYYMMDD（如 "20260124"）
  * @returns (start_of_day, end_of_day) tuple representing 0:00 and 24:00 of that day
+ *          返回一个元组：[当天0点, 次日0点]，用于表示该天的完整时间范围
+ * 
+ * 例如：getDayStartEnd("20260124") 返回 [2026-01-24 00:00:00, 2026-01-25 00:00:00]
  */
 function getDayStartEnd(dateStr: string): [Date, Date] {
     const date = moment(dateStr, dateFormat).toDate();

@@ -13,10 +13,22 @@ import { PromptId } from '@/service/prompt/PromptId';
 import { getDefaultDocumentSummary } from './helper/DocumentLoaderHelpers';
 
 /**
+ * @file MarkdownDocumentLoader.ts
+ * @description Markdown 文档加载器。
+ * 针对 Obsidian 中的标准 .md 文件进行解析：
+ * 1. 利用 Obsidian API 读取缓存的内容。
+ * 2. 提取 YAML Frontmatter 中的标题、标签。
+ * 3. 识别正文中的 #标签 和 [[双链]] 引用。
+ * 4. 使用 LangChain 的 RecursiveCharacterTextSplitter 进行智能分块。
+ */
+
+/**
  * Markdown document loader.
  *
  * This runs on the main thread because it uses Obsidian APIs.
  * Worker code must never import this module.
+ * 
+ * Markdown 加载器实现类。
  */
 export class MarkdownDocumentLoader implements DocumentLoader {
 	constructor(
@@ -35,6 +47,8 @@ export class MarkdownDocumentLoader implements DocumentLoader {
 	/**
 	 * Read a markdown document by its path.
 	 * Returns core Document model.
+	 * 
+	 * 根据路径读取 Markdown 文件并转换为统一文档模型。
 	 */
 	async readByPath(path: string, genCacheContent?: boolean): Promise<Document | null> {
 		const file = this.app.vault.getAbstractFileByPath(path);
@@ -46,6 +60,8 @@ export class MarkdownDocumentLoader implements DocumentLoader {
 	/**
 	 * Chunk content from a document using LangChain's RecursiveCharacterTextSplitter.
 	 * First calls getIndexableContent, then chunks the content using markdown-specific splitter.
+	 * 
+	 * 使用 LangChain 的递归字符分块器对 Markdown 进行分块。
 	 */
 	async chunkContent(
 		doc: Document,
@@ -89,6 +105,8 @@ export class MarkdownDocumentLoader implements DocumentLoader {
 	/**
 	 * Scan markdown documents metadata without loading content.
 	 * Returns lightweight metadata: path, mtime, type.
+	 * 
+	 * 快速扫描所有 Markdown 文件，用于索引更新检测。
 	 */
 	async *scanDocuments(params?: { limit?: number; batchSize?: number }): AsyncGenerator<Array<{ path: string; mtime: number; type: DocumentType }>> {
 		const limit = params?.limit ?? Infinity;
@@ -116,6 +134,8 @@ export class MarkdownDocumentLoader implements DocumentLoader {
 
 	/**
 	 * Read a markdown file and convert to core Document model.
+	 * 
+	 * 内部私有方法：执行具体的读取、解析和元数据提取。
 	 */
 	private async readMarkdownFile(file: TFile, genCacheContent?: boolean): Promise<Document | null> {
 		try {
@@ -203,6 +223,8 @@ export class MarkdownDocumentLoader implements DocumentLoader {
 	/**
 	 * Get summary for a markdown document
 	 * // todo implement getSummary. many types: raw knowledge base markdown, conv and project markdown, resources markdown
+	 * 
+	 * 获取 Markdown 摘要。当前委托给默认实现。
 	 */
 	async getSummary(
 		source: Document | string,

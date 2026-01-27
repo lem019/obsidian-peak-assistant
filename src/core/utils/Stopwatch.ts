@@ -1,7 +1,10 @@
 /**
+ * @file Stopwatch.ts
+ * @description 秒表工具类，用于测量和记录带标签的时间段
+ * 
  * Stopwatch utility for measuring and logging elapsed time with labeled segments.
  * 
- * Usage:
+ * Usage: （使用示例）
  * ```typescript
  * const sw = new Stopwatch('Operation');
  * sw.start('step1');
@@ -25,6 +28,9 @@ export class Stopwatch {
 	/**
 	 * Start a new timing segment with the given label.
 	 * If a segment is already running, it will be stopped first.
+	 * 
+	 * 启动一个新的计时段落
+	 * 如果已有段落在运行，会先停止它
 	 */
 	start(label: string): void {
 		// Stop current segment if running
@@ -39,6 +45,9 @@ export class Stopwatch {
 	/**
 	 * Stop the current timing segment.
 	 * If no segment is running, this is a no-op.
+	 * 
+	 * 停止当前计时段落
+	 * 如果没有段落在运行，此操作不执行任何事情
 	 */
 	stop(): void {
 		if (!this.currentSegment) {
@@ -59,6 +68,7 @@ export class Stopwatch {
 
 	/**
 	 * Get the total elapsed time from the first segment start to now (or last segment end).
+	 * 获取从第一个段落开始到现在（或最后一个段落结束）的总经过时间
 	 */
 	getTotalElapsed(): number {
 		if (this.segments.length === 0) {
@@ -76,6 +86,9 @@ export class Stopwatch {
 	/**
 	 * Print all timing segments to console.
 	 * Format: [Stopwatch: name] label: duration ms (total: X ms)
+	 * 
+	 * 将所有计时段落输出到控制台
+	 * 格式：[Stopwatch: name] label: duration ms (total: X ms)
 	 */
 	print(debug: boolean = true): void {
 		const total = this.getTotalElapsed();

@@ -1,3 +1,8 @@
+/**
+ * @file DocumentLoaderManager.ts
+ * @description 文档加载器管理器，统一管理各种文件类型的文档加载器，使用策略模式
+ */
+
 import type { App, TAbstractFile } from 'obsidian';
 import { TFile } from 'obsidian';
 import type { DocumentLoader } from '../types';
@@ -23,6 +28,9 @@ import { UrlDocumentLoader } from '../UrlDocumentLoader';
 /**
  * Global singleton manager for document loaders.
  * Manages multiple document loaders for different file types using strategy pattern.
+ * 
+ * 全局单例文档加载器管理器
+ * 使用策略模式管理不同文件类型的多个文档加载器
  */
 export class DocumentLoaderManager {
 	private static instance: DocumentLoaderManager | null = null;
@@ -36,6 +44,9 @@ export class DocumentLoaderManager {
 	/**
 	 * Get the global singleton instance.
 	 * Must be initialized with init() before first use.
+	 * 
+	 * 获取全局单例实例
+	 * 必须在首次使用前调用 init() 进行初始化
 	 */
 	static getInstance(): DocumentLoaderManager {
 		if (!DocumentLoaderManager.instance) {
@@ -47,6 +58,10 @@ export class DocumentLoaderManager {
 	/**
 	 * Initialize the global singleton instance.
 	 * Should be called once during plugin initialization.
+	 * 
+	 * 初始化全局单例实例
+	 * 应在插件初始化时调用一次
+	 * 
 	 * @param aiServiceManager Optional AI service manager for loaders that need AI capabilities (e.g., image description).
 	 */
 	static init(app: App, settings: SearchSettings, aiServiceManager?: AIServiceManager): DocumentLoaderManager {
@@ -68,6 +83,7 @@ export class DocumentLoaderManager {
 
 	/**
 	 * Register all document loaders.
+	 * 注册所有文档加载器
 	 */
 	private registerAllLoaders(): void {
 		// Register all document loaders
